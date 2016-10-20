@@ -4,69 +4,7 @@
 //  from post:
 //    http://lists.boost.org/Archives/boost/2016/10/231136.php
 //============================================================
-#include <iostream>
-#include <array>
-#include <cassert>
-#include <type_traits>
-#include <algorithm>
-  std::size_t
-nxt_offset
-  ( std::size_t now_offset
-  , std::size_t now_size
-  , std::size_t nxt_align
-  )
-  /**@brief
-   *  Find the next offset which provides
-   *  enough space(now_size) from now_offset
-   *  and has alignment, nxt_align.
-   */
-  #define TRACE_NXT_OFFSET
-  {
-    std::size_t result=now_offset+now_size;
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__
-      <<":now_offset="<<now_offset
-      <<":now_size="<<now_size
-      <<":nxt_align="<<nxt_align
-      <<":result1="<<result
-      <<"\n";
-  #endif
-    std::size_t remainder=result%nxt_align;
-    if(remainder)
-      result+=nxt_align-remainder; //if result not aligned, make it aligned.
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__<<":remainder1="<<remainder<<":result2="<<result<<"\n";
-  #endif
-    remainder=result%nxt_align;
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__<<":remainder2="<<remainder<<"\n";
-  #endif
-    assert(remainder == 0);
-    return result;
-  }
-  template<typename... Ts>
-  auto
-vec_offsets
-  ( std::size_t vec_size
-  )
-  /**@brief
-   *  Calculate offsets in a char buffer for storing 
-   *  Ts[vec_size]...
-   *  Last offset(at sizeTs) is for the char buffer size.
-   */
-  {
-    std::size_t const sizeTs=sizeof...(Ts);
-    std::array<std::size_t,sizeTs+1> result{0};
-    std::size_t sizes[sizeTs]={sizeof(Ts)...};
-    std::size_t aligns[sizeTs]={alignof(Ts)...};
-    for(std::size_t i_T=1; i_T<sizeTs; ++i_T)
-    {
-      result[i_T]=nxt_offset( result[i_T-1], sizes[i_T-1]*vec_size, aligns[i_T]);
-    }
-    result[sizeTs]=result[sizeTs-1]+sizes[sizeTs-1]*vec_size;
-    //^The size of buffer to hold all the Ts[vec_size]....
-    return result;
-  }
+#include <cstddef> //std::size_t
   template
   < std::size_t Index
   , typename T
@@ -118,6 +56,9 @@ soa_vec
   struct
 soa_impl
   ;
+#include "vec_offsets.hpp"
+#include <iostream>
+#include <type_traits>
   template
   < std::size_t... Indices
   , typename... Ts
@@ -287,46 +228,8 @@ soa_block
     }
   };
   
-  unsigned
-udt_count=0
-  ;
-  template
-  < unsigned Id
-  >
-  struct 
-  alignas
-  ( std::max
-    ( std::size_t(1<<Id%7)
-      //==pow(2,Id%7).
-      //The c++ standard, IIRC, says all alignments are power of 2.
-    , std::alignment_of<unsigned>::value
-      //account for my_id alignment.
-    )
-  ) 
-udt //some User Defined Type.
-  {
-    unsigned my_id;
-    char c[2*(Id+1)];//Take up some space.
-        friend
-      std::ostream&
-    operator<<
-      ( std::ostream& sout
-      , udt const& x
-      )
-      {
-        return sout<<"udt<"<<Id<<">:my_id="<<x.my_id;
-      }
-    udt()
-      : my_id(udt_count++)
-      {
-        std::cout<<"CTOR(default):"<<*this<<"\n";
-      }
-    udt(udt const&)
-      : my_id(udt_count++)
-      {
-        std::cout<<"CTOR(copy):"<<*this<<"\n";
-      }
-  };
+#include "udt.hpp"  
+
   template
   < typename... Ts
   >
