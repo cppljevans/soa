@@ -229,27 +229,10 @@ soa_block
   };
   
 #include "udt.hpp"  
-
-  template
-  < typename... Ts
-  >
-  void
-test_offsets(std::size_t vec_size)
-  {
-    std::cout<<":vec_size="<<vec_size<<":sizeof...(Ts)="<<sizeof...(Ts)<<"\n";
-    auto offsets=vec_offsets<Ts...>(vec_size);
-    for( auto offset: offsets)
-    {
-      std::cout<<"offset="<<offset<<"\n";
-    }
-  }  
   int 
 main()
   {
     std::size_t vec_size=5;
-    test_offsets<udt<0>,udt<0>>(vec_size);
-    test_offsets<udt<0>,udt<3>>(vec_size);
-    test_offsets<udt<3>,udt<0>>(vec_size);
     soa_block<udt<3>,udt<0>> soa_v(vec_size);
     unsigned i=0;
     for(auto* p=soa_v.begin<0>(); p< soa_v.end<0>(); ++p,++i)
@@ -257,6 +240,6 @@ main()
     i=0;
     for(auto* p=soa_v.begin<1>(); p< soa_v.end<1>(); ++p,++i)
       std::cout<<"p["<<i<<"]="<<*p<<"\n";
-    soa_v.resize(vec_size*2);
+    //soa_v.resize(vec_size*2);
     return 0;
   }  
