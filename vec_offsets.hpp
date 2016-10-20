@@ -50,13 +50,11 @@ vec_offsets
    *  Calculate offsets in a char buffer for storing 
    *  suitably aligned Ts[vec_size]...
    *  Last offset(at sizeTs) is for the char buffer size.
-   *  ***NOTE*** the last offset should not be used
+   *  ***CAUTION*** the last offset should not be used
    *  if 2 or more of such character buffers are contiguous.
    *  That's because the 2nd such buffer may not have the
-   *  correct alignment.  For example, if such a buffer
-   *  were used to store:
-   *    Ts[row_size][col_size] 
-   *  then 
+   *  correct alignment for one or more of the Ts[vec_size]...
+   *  The test driver, vec_offsets.test.cpp, shows this.
    */
   {
     std::size_t const sizeTs=sizeof...(Ts);
