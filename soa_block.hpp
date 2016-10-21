@@ -1,6 +1,7 @@
 #ifndef SOA_BLOCK_HPP_INCLUDED
 #define SOA_BLOCK_HPP_INCLUDED
 #include <cstddef> //std::size_t
+#include <tuple>
   template
   < std::size_t Index
   , typename T
@@ -207,6 +208,16 @@ soa_impl
     end()const
       {
         return get_vec<Index>().ptr_at(storage_at(Index),my_vec_size);
+      }
+      auto
+    begin_all()
+      {
+        return std::make_tuple(this->template begin<Indices>()...);
+      }
+      auto
+    begin_all()const
+      {
+        return std::make_tuple(this->template begin<Indices>()...);
       }
   };
   template

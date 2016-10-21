@@ -7,6 +7,7 @@
 #ifdef TRACE_NXT_OFFSET
   #include <iostream>
 #endif
+    constexpr
   std::size_t
 nxt_offset
   ( std::size_t now_offset
@@ -42,6 +43,7 @@ nxt_offset
     return result;
   }
   template<typename... Ts>
+    constexpr
   auto
 vec_offsets
   ( std::size_t vec_size
