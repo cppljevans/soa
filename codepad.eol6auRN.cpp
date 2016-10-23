@@ -34,7 +34,7 @@ SoA block in 0.0805211 seconds
 //      Used newly added soa_block.begin_all,
 //      and -O2 optimization flag (instead of previous -O0 flag).
 //    RESULT:
-//      Now, soa_block method fastest:
+//      Now, soa_block method fastest(by small amount):
 /*
 /home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -c -O2 -stdlib=libc++  -std=c++14 -ftemplate-backtrace-limit=0 -fdiagnostics-show-template-tree -fno-elide-type -fmacro-backtrace-limit=0       -DTYPE_AT_IMPL=0   -ftemplate-depth=200  codepad.eol6auRN.cpp -MMD -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o 
 /home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -stdlib=libc++    /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o   -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe
@@ -369,40 +369,40 @@ struct soa_emitter_block_t
         char> data_t;
 
     data_t data;
+    typedef decltype(data.begin_all()) begins_t;
+    begins_t const begins_v;
     
     soa_emitter_block_t()
       : data(particle_count)
+      , begins_v(data.begin_all())
       {}
     
     void generate( size_t n, mt19937 & rng ) {
-        auto const begins=data.begin_all();
         for ( size_t i = 0; i < n; ++i ) {
-            get<position>(begins)[i] = float3{ pdist( rng ), pdist( rng ), pdist( rng ) };
-            get<velocity>(begins)[i] = float3{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
-            get<acceleration>(begins)[i] = float3{ adist( rng ), adist( rng ), adist( rng ) };
-            get<size>(begins)[i] = float2{ sdist( rng ), sdist( rng ) };
-            get<color>(begins)[i] = float4{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
-            get<energy>(begins)[i] = edist( rng );
-            get<alive>(begins)[i] = true;
+            get<position>(begins_v)[i] = float3{ pdist( rng ), pdist( rng ), pdist( rng ) };
+            get<velocity>(begins_v)[i] = float3{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
+            get<acceleration>(begins_v)[i] = float3{ adist( rng ), adist( rng ), adist( rng ) };
+            get<size>(begins_v)[i] = float2{ sdist( rng ), sdist( rng ) };
+            get<color>(begins_v)[i] = float4{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
+            get<energy>(begins_v)[i] = edist( rng );
+            get<alive>(begins_v)[i] = true;
         }
     }
 
     void update() {
         size_t n = particle_count;
-
-        auto const begins=data.begin_all();
         for ( size_t i = 0; i < n; ++i ) {
-            auto & p = get<position>(begins)[i];
-            auto & v = get<velocity>(begins)[i];
-            auto & a = get<acceleration>(begins)[i];
-            auto & e = get<energy>(begins)[i];
+            auto & p = get<position>(begins_v)[i];
+            auto & v = get<velocity>(begins_v)[i];
+            auto & a = get<acceleration>(begins_v)[i];
+            auto & e = get<energy>(begins_v)[i];
             v += (a * dt);
             v.y += gravity * dt;
 
             p += (v * dt);
             e -= dt;
             if ( e <= 0 ) {
-                get<alive>(begins)[i] = false;
+                get<alive>(begins_v)[i] = false;
             }
         }
     }

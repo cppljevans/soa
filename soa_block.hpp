@@ -9,41 +9,72 @@
   struct
 soa_vec
   {
+  private:
+        static  
+      T* 
+    cast(char*storage)
+      {  return static_cast<T*>(static_cast<void*>(storage));
+      }
+        static
+      T const* 
+    cast(char const* storage)
+      {  return static_cast<T const*>(static_cast<void const*>(storage));
+      }
   public:
-      void
-    construct(char* storage, std::size_t size=1)
+      T*
+    ptr_at(char* my_storage, std::size_t index)
       {
-        T* begin=cast(storage);
-        T* end=begin+size;
+        return cast(my_storage)+index;
+      }
+      T const*
+    ptr_at(char const* my_storage, std::size_t index)const
+      {
+        return cast(my_storage)+index;
+      }
+      void
+    construct_default
+      ( char* my_storage
+      , std::size_t my_size=1
+      )
+      {
+        T* begin=cast(my_storage);
+        T* end=begin+my_size;
         for(T* now=begin; now!=end; ++now)
           new(now) T;
       }
       void
-    destruct(char* storage, std::size_t size=1)
+    construct_copy
+      ( char* my_storage
+      , char const* other_storage
+      , std::size_t size=1
+      )
       {
-        T* begin=cast(storage);
+        T* to_begin=cast(my_storage);
+        T* to_end=to_begin+size;
+        T const*fr_now=cast(other_storage);
+        for
+          ( T* to_now=to_begin
+          ; to_now!=to_end
+          ; ++to_now,++fr_now
+          )
+          new(to_now) T(*fr_now);
+      }
+      void
+    destruct(char* my_storage, std::size_t size=1)
+      {
+        T* begin=cast(my_storage);
         T* end=begin+size;
         for(T* now=begin; now!=end; ++now)
           now->~T();
       }
-      T*
-    ptr_at(char* storage, std::size_t index)
+      void
+    print( std::ostream&sout, char const* my_storage, std::size_t size=1)const
       {
-        return cast(storage)+index;
-      }
-      T const*
-    ptr_at(char const* storage, std::size_t index)const
-      {
-        return cast(storage)+index;
-      }
-  private:      
-      T* 
-    cast(char* storage)
-      {  return static_cast<T*>(static_cast<void*>(storage));
-      }
-      T const* 
-    cast(char const* storage)
-      {  return static_cast<T const*>(static_cast<void const*>(storage));
+        T const* begin=cast(my_storage);
+        T const* end=begin+size;
+        unsigned i=0;
+        for(T const* now=begin; now!=end; ++now,++i)
+          sout<<"  "<<"soa_vec["<<i<<"]="<<*now<<"\n";
       }
   };
   template
@@ -54,7 +85,7 @@ soa_vec
 soa_impl
   ;
 #include "vec_offsets.hpp"
-#include <type_traits>
+#include <utility>//std::integer_sequence
   template
   < std::size_t... Indices
   , typename... Ts
@@ -119,23 +150,72 @@ soa_impl
       < std::size_t Index
       >
       void
-    construct
+    construct_default
       (
       )
       {
-        get_vec<Index>().construct(storage_at(Index),my_vec_size);
+        get_vec<Index>().construct_default(storage_at(Index),my_vec_size);
       }
       template
       < std::size_t Index
       >
       void
-    destruct
-      (
+    construct_copy
+      ( soa_impl const& other_impl
       )
+      {
+        get_vec<Index>().construct_copy
+        ( storage_at(Index)
+        , other_impl.storage_at(Index)
+        , my_vec_size
+        );
+      }
+      template
+      < std::size_t Index
+      >
+      void
+    destruct()
       {
         get_vec<Index>().destruct(storage_at(Index),my_vec_size);
       }
+      template
+      < std::size_t Index
+      >
+        static
+      auto
+    mk_index()
+      {
+        return std::integral_constant<std::size_t,Index>{};
+      }
+      template
+      < typename Fun
+      >
+        static
+      void
+    for_each_index(Fun& fun)
+     /**@brief
+      *   Do fun(mk_index<Indices>())...
+      */
+      {
+        using swallow = int[]; // guaranties left to right order
+        (void) //ignore result of following CTOR call.
+        swallow
+        { 0 //provide something, in case sizeof...(Indices)==0.
+        , ( fun(mk_index<Indices>())
+          , 0 //ignore result of above fun call and use this value.
+          )...
+        };
+      }
   protected:
+      template
+      < std::size_t Index
+      >
+      void
+    print_index(std::ostream& sout)const
+      {
+        sout<<"soa_block<"<< Index <<">=\n";
+        get_vec<Index>().print(sout,storage_at(Index),my_vec_size);
+      }
     soa_impl(std::size_t a_vec_size)
       : my_vec_size(a_vec_size)
       , my_offsets(vec_offsets<Ts...>(a_vec_size))
@@ -145,37 +225,71 @@ soa_impl
         //Hence, my_offsets.front() can be 0, which
         //is what is returned by vec_offsets.
       { 
-        using swallow = int[]; // guaranties left to right order
-        (void)swallow{0, (void(this->template construct<Indices>()), 0)...};
+        auto fun=[this](auto index)
+          { //std::cout<<"index()="<<index()<<"\n";
+            this->template construct_default<index()>();
+          };
+        for_each_index(fun);
+      }
+    soa_impl(soa_impl const& a_other)
+      : my_vec_size(a_other.my_vec_size)
+      , my_offsets(a_other.my_offsets)
+      , my_storage(new char[my_offsets.back()])
+      { 
+        auto fun = [this,&a_other](auto index)
+          { this->template construct_copy<index()>
+            ( a_other
+            );
+          };
+        for_each_index(fun);
       }
     ~soa_impl()
       {
-        using swallow = int[]; // guaranties left to right order
-        (void)swallow{0, (void(this->template destruct<Indices>()), 0)...};
-        delete[] my_storage;
+        if(my_storage)
+        {
+          auto fun=[this](auto index)
+            { //std::cout<<"index()="<<index()<<"\n";
+              this->template destruct<index()>();
+            };
+          for_each_index(fun);
+          delete[] my_storage;
+        }
+      }
+      void
+    swap(soa_impl& other)
+      {
+        std::swap(my_offsets , other.my_offsets);
+        std::swap(my_storage , other.my_storage);
+        std::swap(my_vec_size, other.my_vec_size);
       }
   public:
       std::size_t
     vec_size()const
       { return my_vec_size;
       }
+      soa_impl&
+    operator=(soa_impl const& other)
+      { 
+        //***TODO***
+        //  This is probably not the fastest method ;(
+        soa_impl copy(other);
+        auto fun=[this](auto index)
+          { //std::cout<<"index()="<<index()<<"\n";
+            this->template destruct<index()>();
+          };
+        for_each_index(fun);
+        swap(copy);
+        delete[] copy.my_storage;
+        copy.my_storage=0;
+        return *this;
+      }
       void 
     resize(std::size_t a_vec_size)
       { 
-      #if 1
-        std::cout<<"resize not implemented yet ;(\n";
-      #else
-        offsets_t resized_offsets(vec_offsets<Ts...>(a_vec_size));
-        char* resized_storage=new char[resized_offsets.back()];
         //***TODO***
-        //copy my_storage to resized_storage,
-        //Then, initialize resized_storage that has *not*
-        //been copied to, if needed, using, as with
-        //CTOR, some sort of placement new code.
-        my_offsets=resized_offsets;
-        delete[] my_storage;
-        my_storage=resized_storage;
-      #endif
+        //  This is probably not the fastest method ;(
+        soa_impl copy(a_vec_size);
+        this->operator=(copy);
       }
       template
       < std::size_t Index
@@ -219,6 +333,16 @@ soa_impl
       {
         return std::make_tuple(this->template begin<Indices>()...);
       }
+      void
+    print
+      ( std::ostream& sout
+      )const
+      {
+        auto fun=[this,&sout](auto index)
+          { this->template print_index<index()>(sout);
+          };
+        for_each_index(fun);
+      }
   };
   template
   < typename... Ts
@@ -236,9 +360,20 @@ soa_block
     using super_t=soa_impl< std::index_sequence_for<Ts...>, Ts...>;
     using super_t::vec_size;
     using super_t::resize;
+    
     soa_block(std::size_t a_vec_size)
-    : super_t(a_vec_size)
-    {  
-    }
+      : super_t(a_vec_size)
+      {  
+      }
+        friend
+      std::ostream&
+    operator<<
+      ( std::ostream& sout
+      , soa_block const& x
+      )
+      {
+        x.print(sout);
+        return sout;
+      }
   };
 #endif//SOA_BLOCK_HPP_INCLUDED

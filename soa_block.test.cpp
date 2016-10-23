@@ -9,16 +9,25 @@
 #include "udt.hpp"  
   int 
 main()
+{
   {
     std::size_t vec_size=5;
-    soa_block<udt<3>,udt<0>> soa_v(vec_size);
-    auto n=soa_v.vec_size();
-    unsigned i=0;
-    for(auto* p=soa_v.begin<0>(); i<n; ++p,++i)
-      std::cout<<"p["<<i<<"]="<<*p<<"\n";
-    i=0;
-    for(auto* p=soa_v.begin<1>(); i<n; ++p,++i)
-      std::cout<<"p["<<i<<"]="<<*p<<"\n";
-    soa_v.resize(vec_size*2);
-    return 0;
-  }  
+    using soa_t=soa_block<udt<3>,udt<0>>;
+    soa_t soa_v0(vec_size);
+    std::cout<<"soa_v0=\n"<<soa_v0<<"\n";
+    soa_t soa_v1(soa_v0);
+    std::cout<<"soa_v1=\n"<<soa_v1<<"\n";
+    soa_t soa_v2(vec_size+2);
+    std::cout<<"soa_v2=\n"<<soa_v2<<"\n";
+    soa_v1=soa_v2;
+    std::cout<<"soa_v1=soa_v2\n"<<soa_v1<<"\n";
+    soa_v0.resize(vec_size+3);
+    std::cout<<"soa_v0.resize=\n"<<soa_v0<<"\n";
+  }
+  if(is_live.size() !=0)
+  {
+    std::cout<<"***ERROR***: is_live should be empty!\n";
+    std::cout<<"is_live=\n"<<is_live<<".\n";
+  }
+  return 0;
+}  

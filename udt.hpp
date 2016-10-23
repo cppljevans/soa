@@ -1,6 +1,7 @@
 #ifndef UDT_HPP_INCLUDED
 #define UDT_HPP_INCLUDED
 #include <algorithm>//std::max
+#include <set>
 #include <iostream>
   using
 udt_id_t=unsigned
@@ -12,24 +13,71 @@ udt_count=0
   *  a unique my_id for each one created.
   */
   ;
+  std::multiset<udt_id_t>
+is_live
+  ;
+  std::ostream&
+operator<<
+  ( std::ostream& sout
+  , std::multiset<udt_id_t> const& x
+  )
+  {
+    for(auto e: x)
+    {
+      sout<<e<<"\n";
+    }
+    return sout;
+  }  
+  struct
+udt_id_base
+  {
+  private:
+    udt_id_t my_id;
+  public:
+      udt_id_t
+    id()const
+      { return my_id;}
+    udt_id_base()
+      : my_id(udt_count++)
+      {
+        is_live.insert(my_id);
+      }
+    udt_id_base(udt_id_base&)
+      : my_id(udt_count++)
+      {
+        is_live.insert(my_id);
+      }
+    ~udt_id_base()
+      {
+        is_live.erase(is_live.find(my_id));
+      }
+      udt_id_base&
+    operator=(udt_id_base const&)
+      { //don't copy my_id to preserve uniqueness.
+        return *this;
+      }
+  };
   template
-  < unsigned Id
+  < unsigned TypeId//type identifier
   >
   struct 
   alignas
   ( std::max
-    ( std::size_t(1<<Id%7)
-      //==pow(2,Id%7).
+    ( std::size_t(1<<TypeId%7)
+      //==pow(2,Id%7).  
+      //The 7 is somewhat arbitrary.
+      //It's purpose is just to limit size of alignment.
       //The c++ standard, IIRC, says all alignments are power of 2.
     , std::alignment_of<udt_id_t>::value
       //account for my_id alignment.
     )
   ) 
 udt //some User Defined Type.
+  : private udt_id_base
   {
   private:
-    udt_id_t my_id;
-    char c[2*(Id+1)];//Take up some space.
+    udt_id_t my_val;//used to test if copy done.
+    char c[2*(TypeId+1)];//Take up some space.
   public:
         friend
       std::ostream&
@@ -38,22 +86,27 @@ udt //some User Defined Type.
       , udt const& x
       )
       {
-        return sout<<"udt<"<<Id<<">:my_id="<<x.my_id;
+        return 
+          sout
+          <<"udt<"<<TypeId<<">"
+          <<":my_id="<<x.id()
+          <<":my_val="<<x.my_val
+          ;
       }
     udt()
-      : my_id(udt_count++)
+      : my_val(this->udt_id_base::id())
       {
         std::cout<<"CTOR(default):"<<*this<<"\n";
       }
-    udt(udt const&)
-      : my_id(udt_count++)
+    udt(udt const& x)
+      : my_val(x.my_val)
       {
         std::cout<<"CTOR(copy):"<<*this<<"\n";
       }
       udt&
-    operator=(udt const&)
+    operator=(udt const& x)
       {
-        //do nothing to preserve uniqueness of my_id.
+        my_val=x.val;//to show copy actually done.
         return *this;
       }
     ~udt()
