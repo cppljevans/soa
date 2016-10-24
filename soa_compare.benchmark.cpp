@@ -1,52 +1,26 @@
-//ChangeLog:
+//Purpose:
+//  Compare methods of Structure Of Arrays data structure.
+//OriginalSource:
 //  On 2016-10-19 by cppljevans
 //    WHAT: downloaded original source from:
 //      http://codepad.org/eol6auRN
-//  On 2016-10-20.1811 by cppljevans:
-//    WHAT:
-//      added HAVE_* macros
-//      and #ifdef HAVE_* ..#endif's
-//    WHY:
-//      to avoid compile errors due to not having some symbols
-//      on my OS.
-//  On 2016-10-20.1834 by cppljevans:
-//    WHAT:
-//      added USE_SMALL_PARTICLE_COUNT macro.
-//    WHY:
-//      to avoid long run times during development.
-//  On 2016-10-20.2137 by cppljevans:
-//    WHAT:
-//      added struct soa_emitter_block_t
-//    WHY:
-//      to test performance of soa_block method.
-//    RESULT:
-//      took about twice as long as soa_emitter_static_t
+//RESULT:
 /*
-particle_count=1,000
-AoS in 0.0359925 seconds
-SoA in 0.0324623 seconds
-SoA flat in 0.0325361 seconds
-SoA Static in 0.0426253 seconds
-SoA block in 0.0805211 seconds
- */
-//  On 2016-10-21.0243 by cppljevans:
-//    WHAT:
-//      Used newly added soa_block.begin_all,
-//      and -O2 optimization flag (instead of previous -O0 flag).
-//    RESULT:
-//      Now, soa_block method fastest(by small amount):
-/*
-/home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -c -O2 -stdlib=libc++  -std=c++14 -ftemplate-backtrace-limit=0 -fdiagnostics-show-template-tree -fno-elide-type -fmacro-backtrace-limit=0       -DTYPE_AT_IMPL=0   -ftemplate-depth=200  codepad.eol6auRN.cpp -MMD -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o 
-/home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -stdlib=libc++    /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o   -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe
-/tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe 
+/tmp/build/gcc4_9_0/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
 particle_count=1,000,000
-AoS in 7.18701 seconds
-SoA in 5.38178 seconds
-SoA flat in 5.19252 seconds
-SoA Static in 5.14276 seconds
-SoA block in 5.12777 seconds
+minimum duration=5.10273
 
-Compilation finished at Fri Oct 21 02:41:38
+comparitive performance table:
+
+method   rel_duration   
+________ ______________ 
+Aos      1.41335       
+SoA      1.04422       
+Flat     1.01319       
+StdArray 1.01082       
+Block    1             
+
+Compilation finished at Mon Oct 24 04:55:46
  */
 //=============================
 #include <mmintrin.h>
@@ -129,8 +103,28 @@ constexpr size_t particle_count =
   15625 * 64
 #endif
   ;
-
-struct aos_emitter_t {
+  enum
+soa_method_enum
+  { Aos
+  , SoA
+  , Flat
+  , StdArray
+  , Block
+#ifdef HAVE__M128  
+  , SSE
+  , SSE_opt
+#endif  
+  , soa_method_last
+  };
+  template
+  < soa_method_enum Method
+  >
+struct emitter_t
+  ;
+  template<>
+struct emitter_t<Aos> {
+    static constexpr char const*name(){return "Aos";}
+    
     vector<particle_t> particles;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -166,7 +160,10 @@ struct aos_emitter_t {
     }
 };
 
-struct soa_emitter_t {
+  template<>
+struct emitter_t<SoA> {
+    static constexpr char const*name(){return "SoA";}
+
     vector<float3> position;
     vector<float3> velocity;
     vector<float3> acceleration;
@@ -220,12 +217,14 @@ struct soa_emitter_t {
 
 };
 
-struct soa_emitter_flat_t {
+  template<>
+struct emitter_t<Flat> {
+    static constexpr char const*name(){return "Flat";}
 
     char * data;
     size_t capacity;
     
-    ~soa_emitter_flat_t() {
+    ~emitter_t() {
         free();
     }
 
@@ -305,8 +304,10 @@ struct soa_emitter_flat_t {
     
 template< typename T >
 using soa_array = array<T, particle_count>;
-
-struct soa_emitter_static_t {
+  template<>
+struct emitter_t<StdArray> {
+    static constexpr char const*name(){return "StdArray";}
+    
     typedef tuple<
         soa_array<float3>,
         soa_array<float3>,
@@ -315,7 +316,7 @@ struct soa_emitter_static_t {
         soa_array<float4>,
         soa_array<float>,
         soa_array<char> > data_t;
-
+        
     unique_ptr<data_t> data;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -352,13 +353,15 @@ struct soa_emitter_static_t {
 };
 
 #include "soa_block.hpp"
-struct soa_emitter_block_t 
+  template<>
+struct emitter_t<Block>
 /**@brief
  *  Pretty much cut&past from above 
  *    soa_emitter_static_t
  *  but use soa_block instead of soa_array.
  */
 {
+    static constexpr char const*name(){return "Block";}
     typedef soa_block<
         float3,
         float3,
@@ -369,15 +372,13 @@ struct soa_emitter_block_t
         char> data_t;
 
     data_t data;
-    typedef decltype(data.begin_all()) begins_t;
-    begins_t const begins_v;
     
-    soa_emitter_block_t()
+    emitter_t()
       : data(particle_count)
-      , begins_v(data.begin_all())
       {}
     
     void generate( size_t n, mt19937 & rng ) {
+        auto begins_v=data.begin_all();
         for ( size_t i = 0; i < n; ++i ) {
             get<position>(begins_v)[i] = float3{ pdist( rng ), pdist( rng ), pdist( rng ) };
             get<velocity>(begins_v)[i] = float3{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
@@ -390,6 +391,7 @@ struct soa_emitter_block_t
     }
 
     void update() {
+        auto begins_v=data.begin_all();
         size_t n = particle_count;
         for ( size_t i = 0; i < n; ++i ) {
             auto & p = get<position>(begins_v)[i];
@@ -413,7 +415,10 @@ struct soa_emitter_block_t
 template< typename T >
 using sse_vector = vector<T, aligned_allocator<T,16> >;
 
-struct soa_emitter_sse_t {
+  template<>
+struct sse_t<SSE> {
+    static constexpr char const*name(){return "SSE";}
+
     sse_vector<float> position_x;
     sse_vector<float> position_y;
     sse_vector<float> position_z;
@@ -491,7 +496,10 @@ struct soa_emitter_sse_t {
     }
 };
 
-struct soa_emitter_sse_opt_t {
+  template<>
+struct emitter_t<SSE_opt> {
+    static constexpr char const*name(){return "SSE_opt";}
+    
     sse_vector<float> position_x;
     sse_vector<float> position_y;
     sse_vector<float> position_z;
@@ -574,8 +582,15 @@ struct soa_emitter_sse_opt_t {
     }
 };
 #endif //HAVE__M128
-template< typename emitter_t >
-chrono::duration<double> run_test() {
+#include <utility>
+  using
+dur_t=double;
+  using
+run_result_t=std::pair<char const*,chrono::duration<dur_t>>;
+  template< typename emitter_t >
+  run_result_t
+run_test() 
+  {
     using clock_t = chrono::high_resolution_clock;
 
     constexpr size_t frames = 1000;
@@ -593,32 +608,62 @@ chrono::duration<double> run_test() {
     }
 
     auto finish = clock_t::now();
-    return finish - start;
-}
-
-int main() {
-    auto aos_duration = run_test<aos_emitter_t>();
-    auto soa_duration = run_test<soa_emitter_t>();
-    auto soa_flat_duration = run_test<soa_emitter_flat_t>();
-    auto soa_static_duration = run_test<soa_emitter_static_t>();
-    auto soa_block_duration = run_test<soa_emitter_block_t>();
-  #ifdef HAVE__M128
-    auto soa_sse_duration = run_test<soa_emitter_sse_t>();
-    auto soa_sse_opt_duration = run_test<soa_emitter_sse_opt_t>();
-  #endif
-
+    return run_result_t(emitter_t::name(),finish - start);
+  }
+#include "enum_sequence.hpp"
+#include <iomanip>
+  template
+  < soa_method_enum... Methods
+  >
+  void
+run_tests
+  ( enum_sequence<soa_method_enum,Methods...>
+  )
+  {  run_result_t name_duration[]={run_test<emitter_t<Methods>>()...};
+     dur_t duration[]={name_duration[Methods].second.count()...};
+     dur_t dur_min=std::min({duration[Methods]...});
+     std::cout<<"minimum duration="<<dur_min<<"\n\n";
+     std::cout<<"comparitive performance table:\n\n";
+     unsigned const ncol=2;
+     std::string const header[ncol]={"method","rel_duration"};
+     unsigned long wcol[ncol];
+     std::cout<<std::left;
+     for(unsigned i=0; i<ncol; ++i)
+     {
+       wcol[i]=header[i].size()+2;
+       std::cout
+         <<std::setw(wcol[i])<<header[i]
+         <<" ";
+     }
+     std::cout<<"\n";
+     std::cout<<std::setfill('_');
+     for(unsigned i=0; i<ncol; ++i)
+     {
+       std::cout
+         <<std::setw(wcol[i])<<""
+         <<" ";
+     }
+     std::cout<<"\n";
+     std::cout<<std::setfill(' ');
+     int const prec=6;
+     for(unsigned i=0; i<sizeof...(Methods); ++i)
+     {
+       std::cout
+         <<std::setw(wcol[0])<<name_duration[i].first
+         <<" "
+         <<std::setw(wcol[1])<<std::setprecision(prec)<<(duration[i]/dur_min)
+         <<"\n";
+     }
+  }
+int main() 
+  {
     cout.imbue(std::locale(""));//for thousands separator.
     cout << "particle_count="<< particle_count<< std::endl;
-#if 1
-    cout << "AoS in " << aos_duration.count() << " seconds" << std::endl;
-    cout << "SoA in " << soa_duration.count() << " seconds" << std::endl;
-    cout << "SoA flat in " << soa_flat_duration.count() << " seconds" << std::endl;
-    cout << "SoA Static in " << soa_static_duration.count() << " seconds" << std::endl;
-    cout << "SoA block in " << soa_block_duration.count() << " seconds" << std::endl;
-  #ifdef HAVE__M128
-    cout << "SoA SSE in " << soa_sse_duration.count() << " seconds" << std::endl;
-    cout << "SoA SSE opt in " << soa_sse_opt_duration.count() << " seconds" << std::endl;
-  #endif
-#endif  
+    run_tests
+      ( make_enum_sequence
+        < soa_method_enum
+        , soa_method_last
+        >{}
+      );
     return 0;
-}
+  }
