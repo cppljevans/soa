@@ -6,23 +6,24 @@
 //      http://codepad.org/eol6auRN
 //RESULT:
 /*
-/tmp/build/gcc4_9_0/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
+/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
 particle_count=1,000,000
-minimum duration=5.10273
+minimum duration=5.18095
 
 comparitive performance table:
 
 method   rel_duration   
 ________ ______________ 
-Aos      1.41335       
-SoA      1.04422       
-Flat     1.01319       
-StdArray 1.01082       
 Block    1             
+StdArray 1.00159       
+Flat     1.00874       
+SoA      1.0325        
+AoS      1.39591       
 
-Compilation finished at Mon Oct 24 04:55:46
+Compilation finished at Mon Oct 24 08:26:48
  */
 //=============================
+#define NDEBUG //disable assert's.
 #include <mmintrin.h>
 #include <vector>
 #include <string>
@@ -105,7 +106,7 @@ constexpr size_t particle_count =
   ;
   enum
 soa_method_enum
-  { Aos
+  { AoS
   , SoA
   , Flat
   , StdArray
@@ -122,8 +123,8 @@ soa_method_enum
 struct emitter_t
   ;
   template<>
-struct emitter_t<Aos> {
-    static constexpr char const*name(){return "Aos";}
+struct emitter_t<AoS> {
+    static constexpr char const*name(){return "AoS";}
     
     vector<particle_t> particles;
 
@@ -586,7 +587,7 @@ struct emitter_t<SSE_opt> {
   using
 dur_t=double;
   using
-run_result_t=std::pair<char const*,chrono::duration<dur_t>>;
+run_result_t=std::pair<char const*,dur_t>;
   template< typename emitter_t >
   run_result_t
 run_test() 
@@ -608,7 +609,9 @@ run_test()
     }
 
     auto finish = clock_t::now();
-    return run_result_t(emitter_t::name(),finish - start);
+    chrono::duration<dur_t> dur(finish-start);
+    dur_t diff=dur.count();
+    return run_result_t(emitter_t::name(),diff);
   }
 #include "enum_sequence.hpp"
 #include <iomanip>
@@ -619,9 +622,12 @@ run_test()
 run_tests
   ( enum_sequence<soa_method_enum,Methods...>
   )
-  {  run_result_t name_duration[]={run_test<emitter_t<Methods>>()...};
-     dur_t duration[]={name_duration[Methods].second.count()...};
-     dur_t dur_min=std::min({duration[Methods]...});
+  {  std::vector<run_result_t> name_duration={run_test<emitter_t<Methods>>()...};
+     auto compare=[](auto i, auto j)
+       { return (i.second < j.second);
+       };
+     std::sort(name_duration.begin(),name_duration.end(),compare);
+     dur_t dur_min=name_duration[0].second;
      std::cout<<"minimum duration="<<dur_min<<"\n\n";
      std::cout<<"comparitive performance table:\n\n";
      unsigned const ncol=2;
@@ -651,7 +657,7 @@ run_tests
        std::cout
          <<std::setw(wcol[0])<<name_duration[i].first
          <<" "
-         <<std::setw(wcol[1])<<std::setprecision(prec)<<(duration[i]/dur_min)
+         <<std::setw(wcol[1])<<std::setprecision(prec)<<(name_duration[i].second/dur_min)
          <<"\n";
      }
   }
