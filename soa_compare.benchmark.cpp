@@ -69,7 +69,11 @@ using boost::alignment::aligned_allocator;
 #ifdef HAVE_GOON_BIT_VECTOR
   using goon::bit_vector;
 #else
-  using bit_vector = std::vector<bool>;
+  using bit_vector = std::vector<char>;
+#endif
+
+#ifdef HAVE_LIBFLATARRAY
+#include <libflatarray/flat_array.hpp>
 #endif
 
 struct float2 {
@@ -110,6 +114,33 @@ struct particle_t {
     float energy;
     bool alive;
 };
+
+#ifdef HAVE_LIBFLATARRAY
+
+class plain_particle_t
+{
+public:
+    float position[3];
+    float velocity[3];
+    float acceleration[3];
+    float size[2];
+    float color[4];
+    float energy;
+    bool alive;
+};
+
+LIBFLATARRAY_REGISTER_SOA(
+    plain_particle_t,
+    ((float)(position)(3))
+    ((float)(velocity)(3))
+    ((float)(acceleration)(3))
+    ((float)(size)(2))
+    ((float)(color)(4))
+    ((float)(energy))
+    ((bool)(alive))
+)
+
+#endif
 
 uniform_real_distribution<float> pdist( -10.f, 10.f );
 uniform_real_distribution<float> vxzdist( -5.f, 5.f );
@@ -408,6 +439,67 @@ struct soa_emitter_block_t
     }
 };
 
+struct libflatarray_soa_emitter_t {
+    LibFlatArray::soa_vector<plain_particle_t> particles;
+
+    void generate( size_t n, mt19937 & rng ) {
+        particles.resize( n );
+
+        particles.callback([n, &rng](auto particle){
+                for (; particle.index() < n; ++particle ) {
+                    particle.position()[0] = pdist( rng );
+                    particle.position()[1] = pdist( rng );
+                    particle.position()[2] = pdist( rng );
+                    particle.velocity()[0] = vxzdist( rng );
+                    particle.velocity()[1] = vxzdist( rng );
+                    particle.velocity()[2] = vxzdist( rng );
+                    particle.acceleration()[0] = adist( rng );
+                    particle.acceleration()[1] = adist( rng );
+                    particle.acceleration()[2] = adist( rng );
+                    particle.size()[0] = sdist( rng );
+                    particle.size()[1] = sdist( rng );
+                    particle.color()[0] = cdist( rng );
+                    particle.color()[1] = cdist( rng );
+                    particle.color()[2] = cdist( rng );
+                    particle.color()[3] = cdist( rng );
+                    particle.energy() = edist( rng );
+                    particle.alive() = true;
+                }
+            });
+    }
+
+    void update() {
+        long n = particles.size();
+        particles.callback([n](auto particle){
+                for (; particle.index() < n; ++particle) {
+                    float v0 = particle.velocity()[0] + (particle.acceleration()[0] * dt);
+                    float v1 = particle.velocity()[1] + (particle.acceleration()[1] * dt);
+                    float v2 = particle.velocity()[2] + (particle.acceleration()[2] * dt);
+                    v1 += gravity * dt;
+
+                    particle.velocity()[0] = v0;
+                    particle.velocity()[1] = v1;
+                    particle.velocity()[2] = v2;
+
+                    float p0 = particle.position()[0] + (particle.velocity()[0] * dt);
+                    float p1 = particle.position()[1] + (particle.velocity()[1] * dt);
+                    float p2 = particle.position()[2] + (particle.velocity()[2] * dt);
+
+                    particle.position()[0] = p0;
+                    particle.position()[1] = p1;
+                    particle.position()[2] = p2;
+
+                    float e = particle.energy() - dt;
+                    particle.energy() = e;
+
+                    if ( e <= 0 ) {
+                        particle.alive() = false;
+                    }
+                }
+            });
+    }
+};
+
 //#define HAVE__M128
 #ifdef HAVE__M128
 template< typename T >
@@ -560,7 +652,7 @@ struct soa_emitter_sse_opt_t {
             _mm_store_ps( velocity_z.data() + i, vz );
         }
         __m128 zero = _mm_setzero_ps();
-        auto block_ptr = alive.data();
+        uint64_t *block_ptr = (uint64_t*)alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
             uint64_t block = 0;
@@ -574,6 +666,7 @@ struct soa_emitter_sse_opt_t {
     }
 };
 #endif //HAVE__M128
+
 template< typename emitter_t >
 chrono::duration<double> run_test() {
     using clock_t = chrono::high_resolution_clock;
@@ -602,6 +695,9 @@ int main() {
     auto soa_flat_duration = run_test<soa_emitter_flat_t>();
     auto soa_static_duration = run_test<soa_emitter_static_t>();
     auto soa_block_duration = run_test<soa_emitter_block_t>();
+  #ifdef HAVE_LIBFLATARRAY
+    auto libflatarray_soa_duration = run_test<libflatarray_soa_emitter_t>();
+  #endif
   #ifdef HAVE__M128
     auto soa_sse_duration = run_test<soa_emitter_sse_t>();
     auto soa_sse_opt_duration = run_test<soa_emitter_sse_opt_t>();
@@ -615,6 +711,9 @@ int main() {
     cout << "SoA flat in " << soa_flat_duration.count() << " seconds" << std::endl;
     cout << "SoA Static in " << soa_static_duration.count() << " seconds" << std::endl;
     cout << "SoA block in " << soa_block_duration.count() << " seconds" << std::endl;
+  #ifdef HAVE_LIBFLATARRAY
+    cout << "LibFlatArray SoA in " << libflatarray_soa_duration.count() << " seconds" << std::endl;
+  #endif
   #ifdef HAVE__M128
     cout << "SoA SSE in " << soa_sse_duration.count() << " seconds" << std::endl;
     cout << "SoA SSE opt in " << soa_sse_opt_duration.count() << " seconds" << std::endl;

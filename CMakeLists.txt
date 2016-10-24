@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.6.4 FATAL_ERROR)
 
 find_package(libflatarray)
 include_directories(${libflatarray_INCLUDE_DIRS})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -march=native -DHAVE__M128")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -march=native -DHAVE__M128 -DHAVE_LIBFLATARRAY")
 set(CMAKE_BUILD_TYPE "Release")
 
 add_executable(soa_block.test soa_block.test.cpp)
