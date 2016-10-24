@@ -36,9 +36,9 @@ SoA block in 0.0805211 seconds
 //    RESULT:
 //      Now, soa_block method fastest(by small amount):
 /*
-/home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -c -O2 -stdlib=libc++  -std=c++14 -ftemplate-backtrace-limit=0 -fdiagnostics-show-template-tree -fno-elide-type -fmacro-backtrace-limit=0       -DTYPE_AT_IMPL=0   -ftemplate-depth=200  codepad.eol6auRN.cpp -MMD -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o 
+/home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -c -O2 -stdlib=libc++  -std=c++14 -ftemplate-backtrace-limit=0 -fdiagnostics-show-template-tree -fno-elide-type -fmacro-backtrace-limit=0       -DTYPE_AT_IMPL=0   -ftemplate-depth=200  codepad.eol6auRN.cpp -MMD -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o
 /home/evansl/dwnlds/llvm/3.8/prebuilt/clang+llvm-3.8.0-x86_64-linux-gnu-ubuntu-14.04/bin/clang++ -stdlib=libc++    /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.o   -o /tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe
-/tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe 
+/tmp/build/gcc4_9_0/clang/struct_of_arrays/work/codepad.eol6auRN.exe
 particle_count=1,000,000
 AoS in 7.18701 seconds
 SoA in 5.38178 seconds
@@ -70,7 +70,7 @@ using boost::alignment::aligned_allocator;
   using goon::bit_vector;
 #else
   using bit_vector = std::vector<bool>;
-#endif  
+#endif
 
 struct float2 {
     float x, y;
@@ -121,7 +121,7 @@ uniform_real_distribution<float> edist( 10.f, 1000.f );
 
 constexpr float gravity = -9.8f;
 constexpr float dt = 1.0f;
-constexpr size_t particle_count = 
+constexpr size_t particle_count =
 //#define USE_SMALL_PARTICLE_COUNT
 #ifdef USE_SMALL_PARTICLE_COUNT
   1000
@@ -224,7 +224,7 @@ struct soa_emitter_flat_t {
 
     char * data;
     size_t capacity;
-    
+
     ~soa_emitter_flat_t() {
         free();
     }
@@ -245,7 +245,7 @@ struct soa_emitter_flat_t {
     void free() {
         delete data;
     }
-    
+
     float3* get_position()      { return reinterpret_cast<float3*>(data); }
     float3* get_velocity()      { return reinterpret_cast<float3*>(data + capacity * offsetof(particle_t, velocity)); }
     float3* get_acceleration()  { return reinterpret_cast<float3*>(data + capacity * offsetof(particle_t, acceleration)); }
@@ -302,7 +302,7 @@ struct soa_emitter_flat_t {
         energy,
         alive
     };
-    
+
 template< typename T >
 using soa_array = array<T, particle_count>;
 
@@ -352,9 +352,9 @@ struct soa_emitter_static_t {
 };
 
 #include "soa_block.hpp"
-struct soa_emitter_block_t 
+struct soa_emitter_block_t
 /**@brief
- *  Pretty much cut&past from above 
+ *  Pretty much cut&past from above
  *    soa_emitter_static_t
  *  but use soa_block instead of soa_array.
  */
@@ -371,12 +371,12 @@ struct soa_emitter_block_t
     data_t data;
     typedef decltype(data.begin_all()) begins_t;
     begins_t const begins_v;
-    
+
     soa_emitter_block_t()
       : data(particle_count)
       , begins_v(data.begin_all())
       {}
-    
+
     void generate( size_t n, mt19937 & rng ) {
         for ( size_t i = 0; i < n; ++i ) {
             get<position>(begins_v)[i] = float3{ pdist( rng ), pdist( rng ), pdist( rng ) };
@@ -619,6 +619,6 @@ int main() {
     cout << "SoA SSE in " << soa_sse_duration.count() << " seconds" << std::endl;
     cout << "SoA SSE opt in " << soa_sse_opt_duration.count() << " seconds" << std::endl;
   #endif
-#endif  
+#endif
     return 0;
 }
