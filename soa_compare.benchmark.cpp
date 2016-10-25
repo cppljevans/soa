@@ -445,6 +445,9 @@ struct libflatarray_soa_emitter_t {
     void generate( size_t n, mt19937 & rng ) {
         particles.resize( n );
 
+        // The SoA layout is fixed at compile time. Multiple layouts
+        // are available via templates. callback() dispatches at
+        // runtime to the correct template instantiation:
         particles.callback([n, &rng](auto particle){
                 for (; particle.index() < n; ++particle ) {
                     particle.position()[0] = pdist( rng );
@@ -475,12 +478,21 @@ struct libflatarray_soa_emitter_t {
         long n = particles.size();
         long hits = 0;
         particles.callback([n, &hits](auto particle){
+                // short_vec behaves much like an ordinary float, but
+                // maps all computation to vector intrinsics. The ISA
+                // (SSE, AVX, AVX512...) is chosen automatically at
+                // compile time.
                 typedef LibFlatArray::short_vec<float, 16> Float;
 
+                // The loop peeler handles left-over loop iterations
+                // when the number of particles is not a multiple of
+                // the vector arity...
                 LibFlatArray::loop_peeler<Float>(&particle.index(), n, [&particle, n, &hits](auto new_float, long *i, long end) {
+                        // ...by switching arities:
                         typedef decltype(new_float) Float;
                         Float dt2 = dt;
                         for (; particle.index() < end; particle += Float::ARITY) {
+                            // vector loads are issued by passing a pointer to the c-tor:
                             Float v0 = Float(&particle.velocity()[0]) + (Float(&particle.acceleration()[0]) * dt2);
                             Float v1 = Float(&particle.velocity()[1]) + (Float(&particle.acceleration()[1]) * dt2);
                             Float v2 = Float(&particle.velocity()[2]) + (Float(&particle.acceleration()[2]) * dt2);
@@ -501,7 +513,13 @@ struct libflatarray_soa_emitter_t {
                             Float e = Float(&particle.energy()) - dt2;
                             &particle.energy() << e;
 
+                            // initialization from scalar value
+                            // broadcasts the value to all vector
+                            // lanes:
                             Float alive = 1;
+                            // Comparison creates a bit-mask which can
+                            // be used to selectively set values in
+                            // the target register(s):
                             alive.blend((e <= 0.0f), 0.0);
                             &particle.alive() << alive;
                         }
