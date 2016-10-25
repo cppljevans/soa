@@ -830,7 +830,8 @@ run_tests
 int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
-    cout << "particle_count="<< particle_count<< std::endl;
+    cout << "particle_count="<< particle_count << std::endl;
+    cout << "frames="<< frames << std::endl;
     run_tests
       ( make_enum_sequence
         < soa_method_enum
