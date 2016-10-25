@@ -6,19 +6,19 @@
 //      http://codepad.org/eol6auRN
 //RESULT:
 /*
-/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
+/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe
 particle_count=1,000,000
 minimum duration=5.18095
 
 comparitive performance table:
 
-method   rel_duration   
-________ ______________ 
-Block    1             
-StdArray 1.00159       
-Flat     1.00874       
-SoA      1.0325        
-AoS      1.39591       
+method   rel_duration
+________ ______________
+Block    1
+StdArray 1.00159
+Flat     1.00874
+SoA      1.0325
+AoS      1.39591
 
 Compilation finished at Mon Oct 24 08:26:48
  */
@@ -144,10 +144,10 @@ soa_method_enum
   , StdArray
   , Block
   , LFA
-#ifdef HAVE__M128  
+#ifdef HAVE__M128
   , SSE
   , SSE_opt
-#endif  
+#endif
   , soa_method_last
   };
   template
@@ -158,7 +158,7 @@ struct emitter_t
   template<>
 struct emitter_t<AoS> {
     static constexpr char const*name(){return "AoS";}
-    
+
     vector<particle_t> particles;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -257,7 +257,7 @@ struct emitter_t<Flat> {
 
     char * data;
     size_t capacity;
-    
+
     ~emitter_t() {
         free();
     }
@@ -341,7 +341,7 @@ using soa_array = array<T, particle_count>;
   template<>
 struct emitter_t<StdArray> {
     static constexpr char const*name(){return "StdArray";}
-    
+
     typedef tuple<
         soa_array<float3>,
         soa_array<float3>,
@@ -350,7 +350,7 @@ struct emitter_t<StdArray> {
         soa_array<float4>,
         soa_array<float>,
         soa_array<char> > data_t;
-        
+
     unique_ptr<data_t> data;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -406,7 +406,7 @@ struct emitter_t<Block>
         char> data_t;
 
     data_t data;
-    
+
     emitter_t()
       : data(particle_count)
       {}
@@ -624,7 +624,7 @@ struct sse_t<SSE> {
   template<>
 struct emitter_t<SSE_opt> {
     static constexpr char const*name(){return "SSE_opt";}
-    
+
     sse_vector<float> position_x;
     sse_vector<float> position_y;
     sse_vector<float> position_z;
@@ -714,7 +714,7 @@ dur_t=double;
 run_result_t=std::pair<char const*,dur_t>;
   template< typename emitter_t >
   run_result_t
-run_test() 
+run_test()
   {
     using clock_t = chrono::high_resolution_clock;
 
@@ -783,7 +783,7 @@ run_tests
          <<"\n";
      }
   }
-int main() 
+int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
     cout << "particle_count="<< particle_count<< std::endl;
