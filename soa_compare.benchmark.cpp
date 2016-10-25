@@ -152,14 +152,14 @@ uniform_real_distribution<float> edist( 10.f, 1000.f );
 
 constexpr float gravity = -9.8f;
 constexpr float dt = 1.0f;
-constexpr size_t particle_count =
 //#define USE_SMALL_PARTICLE_COUNT
 #ifdef USE_SMALL_PARTICLE_COUNT
-  1000
+constexpr size_t particle_count = 1024;
+constexpr size_t frames = 2000000;
 #else
-  15625 * 64
+constexpr size_t particle_count = 15625 * 64;
+constexpr size_t frames = 1000;
 #endif
-  ;
 
 struct aos_emitter_t {
     vector<particle_t> particles;
@@ -680,8 +680,6 @@ struct soa_emitter_sse_opt_t {
 template< typename emitter_t >
 chrono::duration<double> run_test() {
     using clock_t = chrono::high_resolution_clock;
-
-    constexpr size_t frames = 1000;
 
     const auto seed_val = mt19937::default_seed;
     mt19937 rng( seed_val );
