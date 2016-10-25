@@ -24,7 +24,7 @@ Compilation finished at Mon Oct 24 08:26:48
  */
 //=============================
 #define NDEBUG //disable assert's.
-#include <mmintrin.h>
+#include <emmintrin.h>//for __m128 type and _mm_* functions.
 #include <vector>
 #include <string>
 #include <chrono>
@@ -127,7 +127,7 @@ uniform_real_distribution<float> edist( 10.f, 1000.f );
 
 constexpr float gravity = -9.8f;
 constexpr float dt = 1.0f;
-#define USE_SMALL_PARTICLE_COUNT
+//#define USE_SMALL_PARTICLE_COUNT
 #ifdef USE_SMALL_PARTICLE_COUNT
 constexpr size_t particle_count = 1024;
 constexpr size_t frames = 1000;
@@ -136,7 +136,6 @@ constexpr size_t particle_count = 15625 * 64;
 constexpr size_t frames = 1000;
 #endif
 
-//#define HAVE__M128
 enum
 soa_method_enum
   { AoS
@@ -226,7 +225,7 @@ struct emitter_t<SoA> {
         }
     }
 
-    bool update() {
+    void update() {
 
         size_t n = position.size();
         auto ps = position.data();
@@ -248,7 +247,6 @@ struct emitter_t<SoA> {
                 als[i] = false;
             }
         }
-        return true;
     }
 
 };
@@ -304,7 +302,7 @@ struct emitter_t<Flat> {
         }
     }
 
-    bool update() {
+    void update() {
 
         size_t n = capacity;
         auto ps = get_position();
@@ -326,7 +324,6 @@ struct emitter_t<Flat> {
                 als[i] = false;
             }
         }
-        return true;
     }
 };
 
@@ -371,7 +368,7 @@ struct emitter_t<StdArray> {
         }
     }
 
-    bool update() {
+    void update() {
         size_t n = particle_count;
 
         for ( size_t i = 0; i < n; ++i ) {
@@ -388,7 +385,6 @@ struct emitter_t<StdArray> {
                 get<alive>(*data)[i] = false;
             }
         }
-        return true;
     }
 };
 
@@ -411,7 +407,7 @@ struct emitter_t<Block>
         float2,
         float4,
         float,
-        char> data_t;
+        bool> data_t;
 
     data_t data;
 
@@ -432,7 +428,7 @@ struct emitter_t<Block>
         }
     }
 
-    bool update() {
+    void update() {
         auto begins_v=data.begin_all();
         size_t n = particle_count;
         for ( size_t i = 0; i < n; ++i ) {
@@ -449,7 +445,6 @@ struct emitter_t<Block>
                 get<alive>(begins_v)[i] = false;
             }
         }
-        return true;
     }
 };
 
@@ -559,11 +554,7 @@ using sse_vector = vector<T, aligned_allocator<T,16> >;
   template<>
 struct emitter_t<SSE> {
     static constexpr char const*name(){return "SSE";}
-  #ifdef HAVE__M128
     static constexpr bool defined=true;
-  #else
-    static constexpr bool defined=false;
-  #endif
 
     sse_vector<float> position_x;
     sse_vector<float> position_y;
@@ -611,7 +602,6 @@ struct emitter_t<SSE> {
     }
 
     void update() {
-      #ifdef HAVE__M128
         size_t n = position_x.size();
         __m128 vx, vy, vz;
         __m128 t = _mm_set1_ps( dt );
@@ -639,18 +629,13 @@ struct emitter_t<SSE> {
                 alive[i+j] = (a & (1 << j));
             }
         }
-      #endif//HAVE__M128
     }
 };
 
   template<>
 struct emitter_t<SSE_opt> {
     static constexpr char const*name(){return "SSE_opt";}
-  #ifdef HAVE__M128
     static constexpr bool defined=true;
-  #else
-    static constexpr bool defined=false;
-  #endif
 
     sse_vector<float> position_x;
     sse_vector<float> position_y;
@@ -698,7 +683,6 @@ struct emitter_t<SSE_opt> {
     }
 
     void update() {
-      #ifdef HAVE__M128
         size_t n = position_x.size();
 
         __m128 vx, vy, vz;
@@ -732,7 +716,6 @@ struct emitter_t<SSE_opt> {
             } while ( i % 64 != 0 );
             *block_ptr++ = block;
         }
-      #endif//HAVE__M128
     }
 };
 
@@ -765,18 +748,69 @@ run_test()
   
       auto start = clock_t::now();
       
-      for ( size_t i = 0; i < frames; ++i ) {
+      for ( size_t i = 0; i < frames; ++i ) 
+      {
           emitter.update();
       }
       auto finish = clock_t::now();
       chrono::duration<dur_t> dur(finish-start);
       diff=dur.count();
     }
-
     return run_result_t{defined,emitter_t::name(),diff};
   }
-#include "enum_sequence.hpp"
 #include <iomanip>
+  template
+  < std::size_t N
+  >
+  void
+print_results
+  ( std::ostream&sout
+  , std::vector<run_result_t>& run_result_v
+  )
+  {
+     auto compare=[](run_result_t const& i, run_result_t const& j)
+       { return (i.dur_v < j.dur_v);
+       };
+     std::sort(run_result_v.begin(),run_result_v.end(),compare);
+     dur_t dur_min=run_result_v[0].dur_v;
+     std::cout<<"minimum duration="<<dur_min<<"\n\n";
+     std::cout<<"comparitive performance table:\n\n";
+     unsigned const ncol=2;
+     std::string const header[ncol]={"method","rel_duration"};
+     unsigned long wcol[ncol];
+     sout<<std::left;
+     for(unsigned i=0; i<ncol; ++i)
+     {
+       wcol[i]=header[i].size()+2;
+       sout
+         <<std::setw(wcol[i])<<header[i]
+         <<" ";
+     }
+     sout<<"\n";
+     sout<<std::setfill('_');
+     for(unsigned i=0; i<ncol; ++i)
+     {
+       sout
+         <<std::setw(wcol[i])<<""
+         <<" ";
+     }
+     sout<<"\n";
+     sout<<std::setfill(' ');
+     int const prec=6;
+     for(unsigned i=0; i<N; ++i)
+     {
+       sout
+         <<std::setw(wcol[0])<<run_result_v[i].method
+         <<" ";
+       if (run_result_v[i].defined)
+         sout<<std::setw(wcol[1])<<std::setprecision(prec)<<(run_result_v[i].dur_v/dur_min);
+       else
+         sout<<std::setw(wcol[1])<<"undefined";
+       sout
+         <<"\n";
+     }
+  }
+#include "enum_sequence.hpp"
   template
   < soa_method_enum... Methods
   >
@@ -784,48 +818,9 @@ run_test()
 run_tests
   ( enum_sequence<soa_method_enum,Methods...>
   )
-  {  std::vector<run_result_t> run_result_v={run_test<emitter_t<Methods>>()...};
-     auto compare=[](run_result_t const& i, run_result_t const& j)
-       { return (i.dur_v < j.dur_v);
-       };
-     dur_t dur_min=run_result_v[0].dur_v;
-     std::sort(run_result_v.begin(),run_result_v.end(),compare);
-     std::cout<<"minimum duration="<<dur_min<<"\n\n";
-     std::cout<<"comparitive performance table:\n\n";
-     unsigned const ncol=2;
-     std::string const header[ncol]={"method","rel_duration"};
-     unsigned long wcol[ncol];
-     std::cout<<std::left;
-     for(unsigned i=0; i<ncol; ++i)
-     {
-       wcol[i]=header[i].size()+2;
-       std::cout
-         <<std::setw(wcol[i])<<header[i]
-         <<" ";
-     }
-     std::cout<<"\n";
-     std::cout<<std::setfill('_');
-     for(unsigned i=0; i<ncol; ++i)
-     {
-       std::cout
-         <<std::setw(wcol[i])<<""
-         <<" ";
-     }
-     std::cout<<"\n";
-     std::cout<<std::setfill(' ');
-     int const prec=6;
-     for(unsigned i=0; i<sizeof...(Methods); ++i)
-     {
-       std::cout
-         <<std::setw(wcol[0])<<run_result_v[i].method
-         <<" ";
-       if (run_result_v[i].defined)
-         std::cout<<std::setw(wcol[1])<<std::setprecision(prec)<<(run_result_v[i].dur_v/dur_min);
-       else
-         std::cout<<std::setw(wcol[1])<<"undefined";
-       std::cout
-         <<"\n";
-     }
+  {  
+     std::vector<run_result_t> run_result_v={run_test<emitter_t<Methods>>()...};
+     print_results<sizeof...(Methods)>(std::cout,run_result_v);
   }
 int main()
   {
