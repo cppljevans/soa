@@ -6,19 +6,19 @@
 //      http://codepad.org/eol6auRN
 //RESULT:
 /*
-/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
+/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe
 particle_count=1,000,000
 minimum duration=5.18095
 
 comparitive performance table:
 
-method   rel_duration   
-________ ______________ 
-Block    1             
-StdArray 1.00159       
-Flat     1.00874       
-SoA      1.0325        
-AoS      1.39591       
+method   rel_duration
+________ ______________
+Block    1
+StdArray 1.00159
+Flat     1.00874
+SoA      1.0325
+AoS      1.39591
 
 Compilation finished at Mon Oct 24 08:26:48
  */
@@ -44,8 +44,12 @@ using boost::alignment::aligned_allocator;
 #ifdef HAVE_GOON_BIT_VECTOR
   using goon::bit_vector;
 #else
-  using bit_vector = std::vector<bool>;
-#endif  
+  using bit_vector = std::vector<char>;
+#endif
+
+#ifdef HAVE_LIBFLATARRAY
+#include <libflatarray/flat_array.hpp>
+#endif
 
 struct float2 {
     float x, y;
@@ -86,6 +90,33 @@ struct particle_t {
     bool alive;
 };
 
+#ifdef HAVE_LIBFLATARRAY
+
+class plain_particle_t
+{
+public:
+    float position[3];
+    float velocity[3];
+    float acceleration[3];
+    float size[2];
+    float color[4];
+    float energy;
+    float alive;
+};
+
+LIBFLATARRAY_REGISTER_SOA(
+    plain_particle_t,
+    ((float)(position)(3))
+    ((float)(velocity)(3))
+    ((float)(acceleration)(3))
+    ((float)(size)(2))
+    ((float)(color)(4))
+    ((float)(energy))
+    ((float)(alive))
+)
+
+#endif
+
 uniform_real_distribution<float> pdist( -10.f, 10.f );
 uniform_real_distribution<float> vxzdist( -5.f, 5.f );
 uniform_real_distribution<float> vydist( 4.f, 20.f );
@@ -96,25 +127,27 @@ uniform_real_distribution<float> edist( 10.f, 1000.f );
 
 constexpr float gravity = -9.8f;
 constexpr float dt = 1.0f;
-constexpr size_t particle_count = 
 //#define USE_SMALL_PARTICLE_COUNT
 #ifdef USE_SMALL_PARTICLE_COUNT
-  1000
+constexpr size_t particle_count = 1024;
+constexpr size_t frames = 2000000;
 #else
-  15625 * 64
+constexpr size_t particle_count = 15625 * 64;
+constexpr size_t frames = 1000;
 #endif
-  ;
-  enum
+
+enum
 soa_method_enum
   { AoS
   , SoA
   , Flat
   , StdArray
   , Block
-#ifdef HAVE__M128  
+  , LFA
+#ifdef HAVE__M128
   , SSE
   , SSE_opt
-#endif  
+#endif
   , soa_method_last
   };
   template
@@ -125,7 +158,7 @@ struct emitter_t
   template<>
 struct emitter_t<AoS> {
     static constexpr char const*name(){return "AoS";}
-    
+
     vector<particle_t> particles;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -224,7 +257,7 @@ struct emitter_t<Flat> {
 
     char * data;
     size_t capacity;
-    
+
     ~emitter_t() {
         free();
     }
@@ -245,7 +278,7 @@ struct emitter_t<Flat> {
     void free() {
         delete data;
     }
-    
+
     float3* get_position()      { return reinterpret_cast<float3*>(data); }
     float3* get_velocity()      { return reinterpret_cast<float3*>(data + capacity * offsetof(particle_t, velocity)); }
     float3* get_acceleration()  { return reinterpret_cast<float3*>(data + capacity * offsetof(particle_t, acceleration)); }
@@ -302,13 +335,13 @@ struct emitter_t<Flat> {
         energy,
         alive
     };
-    
+
 template< typename T >
 using soa_array = array<T, particle_count>;
   template<>
 struct emitter_t<StdArray> {
     static constexpr char const*name(){return "StdArray";}
-    
+
     typedef tuple<
         soa_array<float3>,
         soa_array<float3>,
@@ -317,7 +350,7 @@ struct emitter_t<StdArray> {
         soa_array<float4>,
         soa_array<float>,
         soa_array<char> > data_t;
-        
+
     unique_ptr<data_t> data;
 
     void generate( size_t n, mt19937 & rng ) {
@@ -357,7 +390,7 @@ struct emitter_t<StdArray> {
   template<>
 struct emitter_t<Block>
 /**@brief
- *  Pretty much cut&past from above 
+ *  Pretty much cut&past from above
  *    soa_emitter_static_t
  *  but use soa_block instead of soa_array.
  */
@@ -373,11 +406,11 @@ struct emitter_t<Block>
         char> data_t;
 
     data_t data;
-    
+
     emitter_t()
       : data(particle_count)
       {}
-    
+
     void generate( size_t n, mt19937 & rng ) {
         auto begins_v=data.begin_all();
         for ( size_t i = 0; i < n; ++i ) {
@@ -408,6 +441,97 @@ struct emitter_t<Block>
                 get<alive>(begins_v)[i] = false;
             }
         }
+    }
+};
+
+  template<>
+struct emitter_t<LFA> {
+    static constexpr char const*name(){return "LFA";}
+    LibFlatArray::soa_vector<plain_particle_t> particles;
+
+    void generate( size_t n, mt19937 & rng ) {
+        particles.resize( n );
+
+        // The SoA layout is fixed at compile time. Multiple layouts
+        // are available via templates. callback() dispatches at
+        // runtime to the correct template instantiation:
+        particles.callback([n, &rng](auto particle){
+                for (; particle.index() < n; ++particle ) {
+                    particle.position()[0] = pdist( rng );
+                    particle.position()[1] = pdist( rng );
+                    particle.position()[2] = pdist( rng );
+                    particle.velocity()[0] = vxzdist( rng );
+                    particle.velocity()[1] = vxzdist( rng );
+                    particle.velocity()[2] = vxzdist( rng );
+                    particle.acceleration()[0] = adist( rng );
+                    particle.acceleration()[1] = adist( rng );
+                    particle.acceleration()[2] = adist( rng );
+                    particle.size()[0] = sdist( rng );
+                    particle.size()[1] = sdist( rng );
+                    particle.color()[0] = cdist( rng );
+                    particle.color()[1] = cdist( rng );
+                    particle.color()[2] = cdist( rng );
+                    particle.color()[3] = cdist( rng );
+                    particle.energy() = edist( rng );
+                    particle.alive() = 1;
+                }
+            });
+    }
+
+    void update() {
+        using LibFlatArray::any;
+        using LibFlatArray::get;
+
+        long n = particles.size();
+        long hits = 0;
+        particles.callback([n, &hits](auto particle){
+                // short_vec behaves much like an ordinary float, but
+                // maps all computation to vector intrinsics. The ISA
+                // (SSE, AVX, AVX512...) is chosen automatically at
+                // compile time.
+                typedef LibFlatArray::short_vec<float, 16> Float;
+
+                // The loop peeler handles left-over loop iterations
+                // when the number of particles is not a multiple of
+                // the vector arity...
+                LibFlatArray::loop_peeler<Float>(&particle.index(), n, [&particle, n, &hits](auto new_float, long *i, long end) {
+                        // ...by switching arities:
+                        typedef decltype(new_float) Float;
+                        Float dt2 = dt;
+                        for (; particle.index() < end; particle += Float::ARITY) {
+                            // vector loads are issued by passing a pointer to the c-tor:
+                            Float v0 = Float(&particle.velocity()[0]) + (Float(&particle.acceleration()[0]) * dt2);
+                            Float v1 = Float(&particle.velocity()[1]) + (Float(&particle.acceleration()[1]) * dt2);
+                            Float v2 = Float(&particle.velocity()[2]) + (Float(&particle.acceleration()[2]) * dt2);
+                            v1 += gravity * dt2;
+
+                            &particle.velocity()[0] << v0;
+                            &particle.velocity()[1] << v1;
+                            &particle.velocity()[2] << v2;
+
+                            Float p0 = Float(&particle.position()[0]) + (Float(&particle.velocity()[0]) * dt2);
+                            Float p1 = Float(&particle.position()[1]) + (Float(&particle.velocity()[1]) * dt2);
+                            Float p2 = Float(&particle.position()[2]) + (Float(&particle.velocity()[2]) * dt2);
+
+                            &particle.position()[0] << p0;
+                            &particle.position()[1] << p1;
+                            &particle.position()[2] << p2;
+
+                            Float e = Float(&particle.energy()) - dt2;
+                            &particle.energy() << e;
+
+                            // initialization from scalar value
+                            // broadcasts the value to all vector
+                            // lanes:
+                            Float alive = 1;
+                            // Comparison creates a bit-mask which can
+                            // be used to selectively set values in
+                            // the target register(s):
+                            alive.blend((e <= 0.0f), 0.0);
+                            &particle.alive() << alive;
+                        }
+                    });
+            });
     }
 };
 
@@ -500,7 +624,7 @@ struct sse_t<SSE> {
   template<>
 struct emitter_t<SSE_opt> {
     static constexpr char const*name(){return "SSE_opt";}
-    
+
     sse_vector<float> position_x;
     sse_vector<float> position_y;
     sse_vector<float> position_z;
@@ -569,7 +693,7 @@ struct emitter_t<SSE_opt> {
             _mm_store_ps( velocity_z.data() + i, vz );
         }
         __m128 zero = _mm_setzero_ps();
-        auto block_ptr = alive.data();
+        uint64_t *block_ptr = (uint64_t*)alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
             uint64_t block = 0;
@@ -590,11 +714,9 @@ dur_t=double;
 run_result_t=std::pair<char const*,dur_t>;
   template< typename emitter_t >
   run_result_t
-run_test() 
+run_test()
   {
     using clock_t = chrono::high_resolution_clock;
-
-    constexpr size_t frames = 1000;
 
     const auto seed_val = mt19937::default_seed;
     mt19937 rng( seed_val );
@@ -661,7 +783,7 @@ run_tests
          <<"\n";
      }
   }
-int main() 
+int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
     cout << "particle_count="<< particle_count<< std::endl;
