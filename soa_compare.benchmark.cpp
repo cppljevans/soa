@@ -126,7 +126,7 @@ public:
     float size[2];
     float color[4];
     float energy;
-    bool alive;
+    float alive;
 };
 
 LIBFLATARRAY_REGISTER_SOA(
@@ -137,7 +137,7 @@ LIBFLATARRAY_REGISTER_SOA(
     ((float)(size)(2))
     ((float)(color)(4))
     ((float)(energy))
-    ((bool)(alive))
+    ((float)(alive))
 )
 
 #endif
@@ -463,39 +463,49 @@ struct libflatarray_soa_emitter_t {
                     particle.color()[2] = cdist( rng );
                     particle.color()[3] = cdist( rng );
                     particle.energy() = edist( rng );
-                    particle.alive() = true;
+                    particle.alive() = 1;
                 }
             });
     }
 
     void update() {
+        using LibFlatArray::any;
+        using LibFlatArray::get;
+
         long n = particles.size();
-        particles.callback([n](auto particle){
-                for (; particle.index() < n; ++particle) {
-                    float v0 = particle.velocity()[0] + (particle.acceleration()[0] * dt);
-                    float v1 = particle.velocity()[1] + (particle.acceleration()[1] * dt);
-                    float v2 = particle.velocity()[2] + (particle.acceleration()[2] * dt);
-                    v1 += gravity * dt;
+        long hits = 0;
+        particles.callback([n, &hits](auto particle){
+                typedef LibFlatArray::short_vec<float, 16> Float;
 
-                    particle.velocity()[0] = v0;
-                    particle.velocity()[1] = v1;
-                    particle.velocity()[2] = v2;
+                LibFlatArray::loop_peeler<Float>(&particle.index(), n, [&particle, n, &hits](auto new_float, long *i, long end) {
+                        typedef decltype(new_float) Float;
+                        Float dt2 = dt;
+                        for (; particle.index() < end; particle += Float::ARITY) {
+                            Float v0 = Float(&particle.velocity()[0]) + (Float(&particle.acceleration()[0]) * dt2);
+                            Float v1 = Float(&particle.velocity()[1]) + (Float(&particle.acceleration()[1]) * dt2);
+                            Float v2 = Float(&particle.velocity()[2]) + (Float(&particle.acceleration()[2]) * dt2);
+                            v1 += gravity * dt2;
 
-                    float p0 = particle.position()[0] + (particle.velocity()[0] * dt);
-                    float p1 = particle.position()[1] + (particle.velocity()[1] * dt);
-                    float p2 = particle.position()[2] + (particle.velocity()[2] * dt);
+                            &particle.velocity()[0] << v0;
+                            &particle.velocity()[1] << v1;
+                            &particle.velocity()[2] << v2;
 
-                    particle.position()[0] = p0;
-                    particle.position()[1] = p1;
-                    particle.position()[2] = p2;
+                            Float p0 = Float(&particle.position()[0]) + (Float(&particle.velocity()[0]) * dt2);
+                            Float p1 = Float(&particle.position()[1]) + (Float(&particle.velocity()[1]) * dt2);
+                            Float p2 = Float(&particle.position()[2]) + (Float(&particle.velocity()[2]) * dt2);
 
-                    float e = particle.energy() - dt;
-                    particle.energy() = e;
+                            &particle.position()[0] << p0;
+                            &particle.position()[1] << p1;
+                            &particle.position()[2] << p2;
 
-                    if ( e <= 0 ) {
-                        particle.alive() = false;
-                    }
-                }
+                            Float e = Float(&particle.energy()) - dt2;
+                            &particle.energy() << e;
+
+                            Float alive = 1;
+                            alive.blend((e <= 0.0f), 0.0);
+                            &particle.alive() << alive;
+                        }
+                    });
             });
     }
 };
