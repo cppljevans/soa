@@ -541,7 +541,7 @@ template< typename T >
 using sse_vector = vector<T, aligned_allocator<T,16> >;
 
   template<>
-struct sse_t<SSE> {
+struct emitter_t<SSE> {
     static constexpr char const*name(){return "SSE";}
 
     sse_vector<float> position_x;
