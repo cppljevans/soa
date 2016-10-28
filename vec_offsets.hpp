@@ -1,48 +1,105 @@
 #ifndef VEC_OFFSETS_HPP_INCLUDED
 #define VEC_OFFSETS_HPP_INCLUDED
-#include <cassert>
 #include <array>
-#include <cstddef> //std::size_t
-//#define TRACE_NXT_OFFSET
-#ifdef TRACE_NXT_OFFSET
-  #include <iostream>
-#endif
-    constexpr
-  std::size_t
-nxt_offset
-  ( std::size_t now_offset
-  , std::size_t now_size
-  , std::size_t nxt_align
-  )
+#include <boost/align/is_aligned.hpp>
+#include <boost/align/align_up.hpp>
+namespace vec_offsets_alignment=boost::alignment;
+  template
+  < typename T
+  , std::size_t Align=alignof(T) 
+    //Requested alignment for T.
+    //Must be (some power of 2)*alignof(T)
+  >
+  struct
+type_align
   /**@brief
-   *  Find the next offset which provides
-   *  enough space(now_size) from now_offset
-   *  and has alignment, nxt_align.
+   *  Allow overalignment, Align for T
+   *  to be specified in template args 
+   *  to vec_offsets.
    */
   {
-    std::size_t result=now_offset+now_size;
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__
-      <<":now_offset="<<now_offset
-      <<":now_size="<<now_size
-      <<":nxt_align="<<nxt_align
-      <<":result1="<<result
-      <<"\n";
-  #endif
-    std::size_t remainder=result%nxt_align;
-    if(remainder)
-      result+=nxt_align-remainder; //if result not aligned, make it aligned.
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__<<":remainder1="<<remainder<<":result2="<<result<<"\n";
-  #endif
-    remainder=result%nxt_align;
-  #ifdef TRACE_NXT_OFFSET
-    std::cout<<__func__<<":remainder2="<<remainder<<"\n";
-  #endif
-    assert(remainder == 0);
-    return result;
-  }
-  template<typename... Ts>
+    using type=T;
+    static constexpr std::size_t align=Align;
+  };
+  template
+  < typename T
+  >
+  struct
+get_align
+  {
+    static constexpr std::size_t align=alignof(T);
+  };
+  template
+  < typename T
+  >
+  struct
+get_type
+  {
+    using type=T;
+  };
+  template
+  < typename T
+  , std::size_t Align
+  >
+  struct
+get_align
+  < type_align<T,Align>
+  >
+  {
+    static constexpr std::size_t align=Align;
+  };
+  template
+  < typename T
+  , std::size_t Align
+  >
+  struct
+get_type
+  < type_align<T,Align>
+  >
+  {
+    using type=T;
+  };
+  template
+  < std::size_t N
+  >
+  using
+over_aligns_t= 
+  std::array
+  < std::size_t
+  , N
+  >
+  ;
+  template
+  < std::size_t N
+  >
+  struct
+vec_offsets_t
+  : std::array
+    < std::size_t
+    , N+2
+    >
+  {
+      using 
+    super_t=
+      std::array
+      < std::size_t
+      , N+2
+      >;
+    vec_offsets_t()
+      :super_t{0}
+      {}
+      static constexpr std::size_t
+    i_size=N;
+      static constexpr std::size_t
+    i_align=i_size+1;
+    std::size_t size_all()const
+      { return this->operator[](i_size);}
+    std::size_t align_all()const
+      { return this->operator[](i_align);}
+  };
+  template
+  < typename... TypeAlign 
+  >
     constexpr
   auto
 vec_offsets
@@ -50,25 +107,38 @@ vec_offsets
   )
   /**@brief
    *  Calculate offsets in a char buffer for storing 
-   *  suitably aligned Ts[vec_size]...
-   *  Last offset(at sizeTs) is for the char buffer size.
-   *  ***CAUTION*** the last offset should not be used
-   *  if 2 or more of such character buffers are contiguous.
-   *  That's because the 2nd such buffer may not have the
-   *  correct alignment for one or more of the Ts[vec_size]...
-   *  The test driver, vec_offsets.test.cpp, shows this.
+   *  suitably aligned get_type<TypeAlign>::type... elements.
+   *  Next to last value is is for the char buffer size.
+   *  Last value is maximum of get_align<TypeAlign>::align...
    */
   {
-    std::size_t const sizeTs=sizeof...(Ts);
-    std::array<std::size_t,sizeTs+1> result{0};
-    std::size_t sizes[sizeTs]={sizeof(Ts)...};
-    std::size_t aligns[sizeTs]={alignof(Ts)...};
-    for(std::size_t i_T=1; i_T<sizeTs; ++i_T)
+    std::size_t const num_types=sizeof...(TypeAlign);
+    using offsets_t=vec_offsets_t<num_types>;
+    offsets_t offsets_v;
+    std::size_t sizes[num_types]={(vec_size*sizeof(typename get_type<TypeAlign>::type))...};
+    std::size_t aligns[num_types]={get_align<TypeAlign>::align...};
+    std::size_t i_type=0;
+    std::size_t max_align=aligns[i_type];
+    offsets_v[i_type]=0;
+      auto 
+    nxt_offset=[&](std::size_t align_i)
+      {
+        offsets_v[i_type]=vec_offsets_alignment::align_up
+          ( offsets_v[i_type-1]+sizes[i_type-1]
+          , align_i
+          );
+      };
+    for
+      ( ++i_type
+      ; i_type<num_types
+      ; ++i_type
+      )
     {
-      result[i_T]=nxt_offset( result[i_T-1], sizes[i_T-1]*vec_size, aligns[i_T]);
+      nxt_offset(aligns[i_type]);
+      max_align=std::max(max_align,aligns[i_type]);
     }
-    result[sizeTs]=result[sizeTs-1]+sizes[sizeTs-1]*vec_size;
-    //^The size of buffer to hold all the Ts[vec_size]....
-    return result;
+    nxt_offset(max_align);
+    offsets_v[offsets_t::i_align]=max_align;
+    return offsets_v;
   }
 #endif//VEC_OFFSETS_HPP_INCLUDED

@@ -91,12 +91,15 @@ udt //some User Defined Type.
           <<"udt<"<<TypeId<<">"
           <<":my_id="<<x.id()
           <<":my_val="<<x.my_val
+          <<":sizeof="<<sizeof(udt)
+          <<":alignof="<<alignof(udt)
+          <<":this="<<(void const*)&x
           ;
       }
     udt()
       : my_val(this->udt_id_base::id())
       {
-        std::cout<<"CTOR(default):"<<*this<<"\n";
+        std::cout<<"CTOR(default):*this="<<*this<<"\n";
       }
     udt(udt const& x)
       : my_val(x.my_val)

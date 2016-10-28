@@ -1,6 +1,7 @@
 #ifndef SOA_BLOCK_HPP_INCLUDED
 #define SOA_BLOCK_HPP_INCLUDED
-#include <cstddef> //std::size_t
+#include <cstddef>//std::size_t
+#include <boost/align/aligned_alloc.hpp>//aligned_alloc, aligned_free
 #include <tuple>
   template
   < std::size_t Index
@@ -92,24 +93,24 @@ soa_impl
   >
   struct
 soa_impl
-  < std::integer_sequence< std::size_t, Indices...>
+  < std::index_sequence< Indices...>
   , Ts...
   >
-  : soa_vec<Indices,Ts>... 
+  : soa_vec<Indices,typename get_type<Ts>::type>... 
   {
   private:
     std::size_t my_vec_size;
     using offsets_t=decltype(vec_offsets<Ts...>(1));
     offsets_t my_offsets;
-    char*my_storage;
+    void*my_storage;
       template
       < std::size_t Index
       , typename T
       >
         static
-      soa_vec<Index,T>&
+      soa_vec<Index,T>*
     get_self
-      ( soa_vec<Index,T>&self
+      ( soa_vec<Index,T>*self
       )
       { return self;
       }
@@ -118,33 +119,41 @@ soa_impl
       , typename T
       >
         static
-      soa_vec<Index,T> const&
+      soa_vec<Index,T> const*
     get_self
-      ( soa_vec<Index,T>const&self
+      ( soa_vec<Index,T>const*self
       )
       { return self;
       }
       template
       < std::size_t Index
       >
-      auto&
+      auto*
     get_vec()
-      { return get_self<Index>(*this);
+      { return get_self<Index>(this);
       }
       template
       < std::size_t Index
       >
-      auto const&
+      auto const*
     get_vec()const
-      { return get_self<Index>(*this);
+      { return get_self<Index>(this);
+      }
+      char*
+    storage_char()
+      { return static_cast<char*>(my_storage);
+      }
+      char const*
+    storage_char()const
+      { return static_cast<char const*>(my_storage);
       }
       char*
     storage_at(std::size_t index)
-      { return my_storage+my_offsets[index];
+      { return storage_char()+my_offsets[index];
       }
       char const*
     storage_at(std::size_t index)const
-      { return my_storage+my_offsets[index];
+      { return storage_char()+my_offsets[index];
       }
       template
       < std::size_t Index
@@ -154,7 +163,7 @@ soa_impl
       (
       )
       {
-        get_vec<Index>().construct_default(storage_at(Index),my_vec_size);
+        get_vec<Index>()->construct_default(storage_at(Index),my_vec_size);
       }
       template
       < std::size_t Index
@@ -164,7 +173,7 @@ soa_impl
       ( soa_impl const& other_impl
       )
       {
-        get_vec<Index>().construct_copy
+        get_vec<Index>()->construct_copy
         ( storage_at(Index)
         , other_impl.storage_at(Index)
         , my_vec_size
@@ -176,7 +185,7 @@ soa_impl
       void
     destruct()
       {
-        get_vec<Index>().destruct(storage_at(Index),my_vec_size);
+        get_vec<Index>()->destruct(storage_at(Index),my_vec_size);
       }
       template
       < std::size_t Index
@@ -206,6 +215,30 @@ soa_impl
           )...
         };
       }
+      void*
+    my_alloc()const
+      { 
+        std::size_t const l_align=my_offsets.align_all();
+        std::size_t const l_size=my_offsets.size_all();
+        void*result=
+          boost::alignment::aligned_alloc
+          ( l_align
+          , l_size
+          );
+      #if 0
+        std::cout<<__func__
+          <<":l_align="<<l_align
+          <<":l_size="<<l_size
+          <<":result="<<result
+          <<"\n";
+      #endif
+        return result;
+      }
+      void
+    my_free()
+      { 
+        boost::alignment::aligned_free(my_storage);
+      }
   protected:
       template
       < std::size_t Index
@@ -214,16 +247,22 @@ soa_impl
     print_index(std::ostream& sout)const
       {
         sout<<"soa_block<"<< Index <<">=\n";
-        get_vec<Index>().print(sout,storage_at(Index),my_vec_size);
+        get_vec<Index>()->print(sout,storage_at(Index),my_vec_size);
       }
-    soa_impl(std::size_t a_vec_size)
-      : my_vec_size(a_vec_size)
-      , my_offsets(vec_offsets<Ts...>(a_vec_size))
-      , my_storage(new char[my_offsets.back()])
-        //IIRC, the alignment of the return from new
-        //is large enough to accommodate any alignment.
-        //Hence, my_offsets.front() can be 0, which
-        //is what is returned by vec_offsets.
+    soa_impl
+      ( std::size_t a_vec_size
+      )
+      : my_vec_size
+        ( a_vec_size
+        )
+      , my_offsets
+        ( vec_offsets<Ts...>
+          ( a_vec_size
+          )
+        )
+      , my_storage
+        ( my_alloc()
+        )
       { 
         auto fun=[this](auto index)
           { //std::cout<<"index()="<<index()<<"\n";
@@ -234,7 +273,9 @@ soa_impl
     soa_impl(soa_impl const& a_other)
       : my_vec_size(a_other.my_vec_size)
       , my_offsets(a_other.my_offsets)
-      , my_storage(new char[my_offsets.back()])
+      , my_storage
+        ( my_alloc()
+        )
       { 
         auto fun = [this,&a_other](auto index)
           { this->template construct_copy<index()>
@@ -248,11 +289,11 @@ soa_impl
         if(my_storage)
         {
           auto fun=[this](auto index)
-            { //std::cout<<"index()="<<index()<<"\n";
+            { //std::cout<<__func__<<":index()="<<index()<<"\n";
               this->template destruct<index()>();
             };
           for_each_index(fun);
-          delete[] my_storage;
+          my_free();
         }
       }
       void
@@ -279,7 +320,7 @@ soa_impl
           };
         for_each_index(fun);
         swap(copy);
-        delete[] copy.my_storage;
+        std::free(copy.my_storage);
         copy.my_storage=0;
         return *this;
       }
@@ -297,7 +338,7 @@ soa_impl
       auto*
     begin()
       {
-        return get_vec<Index>().ptr_at(storage_at(Index),0);
+        return get_vec<Index>()->ptr_at(storage_at(Index),0);
       }
       template
       < std::size_t Index
@@ -305,7 +346,7 @@ soa_impl
       auto*
     end()
       {
-        return get_vec<Index>().ptr_at(storage_at(Index),my_vec_size);
+        return get_vec<Index>()->ptr_at(storage_at(Index),my_vec_size);
       }
       template
       < std::size_t Index
@@ -313,7 +354,7 @@ soa_impl
       auto const*
     begin()const
       {
-        return get_vec<Index>().ptr_at(storage_at(Index),0);
+        return get_vec<Index>()->ptr_at(storage_at(Index),0);
       }
       template
       < std::size_t Index
@@ -321,7 +362,7 @@ soa_impl
       auto const*
     end()const
       {
-        return get_vec<Index>().ptr_at(storage_at(Index),my_vec_size);
+        return get_vec<Index>()->ptr_at(storage_at(Index),my_vec_size);
       }
       auto
     begin_all()
@@ -354,15 +395,27 @@ soa_block
    *  structure of arrays mentioned in //Purpose comment
    *  at top of this file.
    */
-  : public soa_impl< std::index_sequence_for<Ts...>, Ts...>
+  : public soa_impl
+    < std::index_sequence_for<Ts...>
+    , Ts...
+    >
   {
   public:
-    using super_t=soa_impl< std::index_sequence_for<Ts...>, Ts...>;
+      using 
+    super_t=
+      soa_impl
+      < std::index_sequence_for<Ts...>
+      , Ts...
+      >;
     using super_t::vec_size;
     using super_t::resize;
     
-    soa_block(std::size_t a_vec_size)
-      : super_t(a_vec_size)
+    soa_block
+      ( std::size_t a_vec_size
+      )
+      : super_t
+        ( a_vec_size
+        )
       {  
       }
         friend

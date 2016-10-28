@@ -12,7 +12,12 @@ main()
 {
   {
     std::size_t vec_size=5;
-    using soa_t=soa_block<udt<3>,udt<0>>;
+    std::cout<<"vec_size="<<vec_size<<"\n";
+      using 
+    soa_t=soa_block
+      < type_align<udt<3>>
+      , type_align<udt<0>>
+      >;
     soa_t soa_v0(vec_size);
     std::cout<<"soa_v0=\n"<<soa_v0<<"\n";
     soa_t soa_v1(soa_v0);
@@ -24,10 +29,16 @@ main()
     soa_v0.resize(vec_size+3);
     std::cout<<"soa_v0.resize=\n"<<soa_v0<<"\n";
   }
-  if(is_live.size() !=0)
+  bool memory_recovered=(is_live.size() ==0);
+  if(memory_recovered)
+  {
+    std::cout<<"***PASSED***: all memory recovered!\n";
+  }
+  else
   {
     std::cout<<"***ERROR***: is_live should be empty!\n";
     std::cout<<"is_live=\n"<<is_live<<".\n";
   }
+  assert(memory_recovered);
   return 0;
 }  
