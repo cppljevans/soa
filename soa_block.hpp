@@ -2,13 +2,16 @@
 #define SOA_BLOCK_HPP_INCLUDED
 #include <cstddef>//std::size_t
 #include <boost/align/aligned_alloc.hpp>//aligned_alloc, aligned_free
-#include <tuple>
   template
   < std::size_t Index
   , typename T
   >
   struct
-soa_vec
+index_type_buf
+  /**@brief
+   *  Provide methods for a T[N] stored in buffer.
+   *  N is defined by subclass.
+   */
   {
   private:
         static  
@@ -75,7 +78,7 @@ soa_vec
         T const* end=begin+size;
         unsigned i=0;
         for(T const* now=begin; now!=end; ++now,++i)
-          sout<<"  "<<"soa_vec["<<i<<"]="<<*now<<"\n";
+          sout<<"  "<<"index_type_buf["<<i<<"]="<<*now<<"\n";
       }
   };
   template
@@ -96,7 +99,7 @@ soa_impl
   < std::index_sequence< Indices...>
   , Ts...
   >
-  : soa_vec<Indices,typename get_type<Ts>::type>... 
+  : index_type_buf<Indices,typename get_type<Ts>::type>... 
   {
   private:
     std::size_t my_vec_size;
@@ -108,9 +111,9 @@ soa_impl
       , typename T
       >
         static
-      soa_vec<Index,T>*
+      index_type_buf<Index,T>*
     get_self
-      ( soa_vec<Index,T>*self
+      ( index_type_buf<Index,T>*self
       )
       { return self;
       }
@@ -119,9 +122,9 @@ soa_impl
       , typename T
       >
         static
-      soa_vec<Index,T> const*
+      index_type_buf<Index,T> const*
     get_self
-      ( soa_vec<Index,T>const*self
+      ( index_type_buf<Index,T>const*self
       )
       { return self;
       }
@@ -392,8 +395,7 @@ soa_impl
 soa_block
   /**@brief
    *  Implementation of the single block of storage for
-   *  structure of arrays mentioned in //Purpose comment
-   *  at top of this file.
+   *  structure of arrays container.
    */
   : public soa_impl
     < std::index_sequence_for<Ts...>
@@ -411,7 +413,7 @@ soa_block
     using super_t::resize;
     
     soa_block
-      ( std::size_t a_vec_size
+      ( std::size_t a_vec_size=1
       )
       : super_t
         ( a_vec_size
