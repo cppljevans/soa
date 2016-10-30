@@ -1,6 +1,6 @@
 #ifndef VEC_OFFSETS_HPP_INCLUDED
 #define VEC_OFFSETS_HPP_INCLUDED
-#include <array>
+#include <array>//and std::make_tuple, std::tuple 
 #include <boost/align/is_aligned.hpp>
 #include <boost/align/align_up.hpp>
 namespace vec_offsets_alignment=boost::alignment;
@@ -79,14 +79,7 @@ vec_offsets_t
     , N+2
     >
   {
-      using 
-    super_t=
-      std::array
-      < std::size_t
-      , N+2
-      >;
     vec_offsets_t()
-      :super_t{0}
       {}
       static constexpr std::size_t
     i_size=N;

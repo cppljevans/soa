@@ -42,9 +42,23 @@ Compilation finished at Mon Oct 24 08:26:48
   #include <goon/bit_vector.hpp>
 #endif
 #include <boost/align/aligned_allocator.hpp>
-#include <boost/fusion/adapted/std_tuple.hpp>
-#include <boost/fusion/algorithm/iteration/for_each.hpp>
-
+#include <boost/fusion/include/for_each.hpp>
+#include <boost/fusion/include/at_c.hpp>
+#include <boost/fusion/container/vector.hpp>
+    template<typename... T>
+    using 
+  soa_struct=boost::fusion::vector<T...>
+    ;
+    template<std::size_t Index,typename... T>
+    auto& 
+  get_soa(soa_struct<T...>&t)
+    { return boost::fusion::at_c<Index>(t)
+    ;}
+    template<std::size_t Index,typename... T>
+    auto const& 
+  get_soa(soa_struct<T...>const &t)
+    { return boost::fusion::at_c<Index>(t)
+    ;}
 using namespace std;
 using boost::alignment::aligned_allocator;
 #ifdef HAVE_GOON_BIT_VECTOR
@@ -133,21 +147,12 @@ uniform_real_distribution<float> edist( 10.f, 1000.f );
 
 constexpr float gravity = -9.8f;
 constexpr float dt = 1.0f;
-//#define USE_SMALL_PARTICLE_COUNT
-#ifdef USE_SMALL_PARTICLE_COUNT
-constexpr size_t particle_count = 1024;
-constexpr size_t frames = 1000;
-#else
-constexpr size_t particle_count = 15625 * 64;
-constexpr size_t frames = 1000;
-#endif
 
 enum
 method_enum
   { AoS
   , SoA_vec
   , SoA_flat
-  , SoA_stdArr
   , SoA_block
   , SSE_block
   , SSE_vec
@@ -155,23 +160,89 @@ method_enum
   , LFA
   , method_last
   };
+  
+#define STRINGIZE(x) #x
+  
+  std::string const
+method_name[method_last+1]=
+  { STRINGIZE(AoS)
+  , STRINGIZE(SoA_vec)
+  , STRINGIZE(SoA_flat)
+  , STRINGIZE(SoA_block)
+  , STRINGIZE(SSE_block)
+  , STRINGIZE(SSE_vec)
+  , STRINGIZE(SSEopt_vec)
+  , STRINGIZE(LFA)
+  , STRINGIZE(method_last)
+  };
+
 
   template
   < method_enum Method
   >
+struct emitter_method
+  { static constexpr method_enum method=Method;
+  };
+  template
+  < method_enum Method
+  >
 struct emitter_t
+  /**@brief
+   *  struct emitter_t<Method>
+   *  : public emitter_method<Method>
+   *  {
+   *   private:
+   *        [storage<Method>]
+   *          //where [storage<Method>]
+   *          //is some data structure
+   *          //dependent on Method.
+   *      particles;
+   *   public:
+   *      void resize( size_t n)
+   *        //resize number of particles
+   *        ;
+   *      size_t particles_size()const
+   *        //return number of particles
+   *        ;
+   *      emitter_t
+   *        ( size_t particles_size
+   *        , mt19937 & rng 
+   *        )
+   *        //Create particles_size number of particles,
+   *        //then generate(rng).
+   *        ;
+   *      void generate( mt19937 & rng )
+   *        //reset particles with some function of rng
+   *        ;
+   *      void update()
+   *        //for all particles, update the particle as function of that particle.
+   *        ;
+   *  };
+   */  
   ;
   template<>
-struct emitter_t<AoS> {
-    static constexpr char const*name(){return "AoS";}
-    static constexpr bool defined=true;
-
+struct emitter_t<AoS> 
+: emitter_method<AoS>
+{
+ private:
     vector<particle_nest_t> particles;
-
-    void generate( size_t n, mt19937 & rng ) {
-        particles.resize( n );
-
-
+ public:
+    void resize( size_t n ) {
+        if(n>0) particles.resize( n );
+    }
+    size_t particles_size()const {
+        return particles.size();
+    }
+    emitter_t
+      ( size_t particles_size
+      , mt19937& rng 
+      )
+      : particles(particles_size)
+      { 
+        generate(rng);
+      }
+    void generate( mt19937 & rng) {
+        auto n=particles_size();
         for ( size_t i = 0; i < n; ++i ) {
             particles[i].position = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
             particles[i].velocity = float3_t{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
@@ -202,45 +273,64 @@ struct emitter_t<AoS> {
 };
 
   template<>
-struct emitter_t<SoA_vec> {
-    static constexpr char const*name(){return "SoA_vec";}
-    static constexpr bool defined=true;
-
-    vector<float3_t> position;
-    vector<float3_t> velocity;
-    vector<float3_t> acceleration;
-    vector<float2_t> size;
-    vector<float4_t> color;
-    vector<float>  energy;
-    vector<char>   alive;
-
-    void generate( size_t n, mt19937 & rng ) {
-        position.resize( n );
-        velocity.resize( n );
-        acceleration.resize( n );
-        size.resize( n );
-        color.resize( n );
-        energy.resize( n );
-        alive.resize( n, true );
+struct emitter_t<SoA_vec> 
+: emitter_method<SoA_vec>
+, particle_nest_enum
+{
+  private:  
+      soa_struct <
+        vector<float3_t>,// position;
+        vector<float3_t>,// velocity;
+        vector<float3_t>,// acceleration;
+        vector<float2_t>,// size;
+        vector<float4_t>,// color;
+        vector<float>,//  energy;
+        vector<char>//   alive;
+      >
+    particles;
+      template
+      < size_t Index
+      >
+      auto*
+    data()
+      { return get_soa<Index>(particles).data();}
+  public:    
+    void resize( size_t n ) {
+        auto fun=[n](auto& e){ e.resize(n);};
+        boost::fusion::for_each(particles,fun);
+    }
+    std::size_t particles_size()const {
+        return get_soa<position>(particles).size();
+    }
+    emitter_t
+      ( std::size_t particles_size
+      , mt19937 & rng 
+      )
+      { 
+        resize(particles_size);
+        generate(rng);
+      }
+    void generate( mt19937 & rng ) {
+        auto n=particles_size();
 
         for ( size_t i = 0; i < n; ++i ) {
-            position[i] = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
-            velocity[i] = float3_t{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
-            acceleration[i] = float3_t{ adist( rng ), adist( rng ), adist( rng ) };
-            size[i] = float2_t{ sdist( rng ), sdist( rng ) };
-            color[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
-            energy[i] = edist( rng );
+            data<position>()[i] = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
+            data<velocity>()[i] = float3_t{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
+            data<acceleration>()[i] = float3_t{ adist( rng ), adist( rng ), adist( rng ) };
+            data<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
+            data<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
+            data<energy>()[i] = edist( rng );
         }
     }
 
     void update() {
 
-        size_t n = position.size();
-        auto ps = position.data();
-        auto vs = velocity.data();
-        auto as = acceleration.data();
-        auto es = energy.data();
-        auto als = alive.data();
+        size_t n = particles_size();
+        auto ps = data<position>();
+        auto vs = data<velocity>();
+        auto as = data<acceleration>();
+        auto es = data<energy>();
+        auto als = data<alive>();
         for ( size_t i = 0; i < n; ++i ) {
             auto & p = ps[i];
             auto & v = vs[i];
@@ -260,9 +350,10 @@ struct emitter_t<SoA_vec> {
 };
 
   template<>
-struct emitter_t<SoA_flat> {
-    static constexpr char const*name(){return "SoA_flat";}
-    static constexpr bool defined=true;
+struct emitter_t<SoA_flat> 
+: emitter_method<SoA_flat>
+{
+ private:
 
     char * data;
     size_t capacity;
@@ -270,22 +361,10 @@ struct emitter_t<SoA_flat> {
     void free() {
         delete[] data;
     }
+ public:    
 
     ~emitter_t() {
         free();
-    }
-
-    void resize( size_t n ) {
-        capacity = n;
-        data = new char[
-            sizeof( float3_t )*n +
-            sizeof( float3_t )*n +
-            sizeof( float3_t )*n +
-            sizeof( float2_t )*n +
-            sizeof( float4_t )*n +
-            sizeof( float )*n +
-            sizeof( char )*n
-        ];
     }
 
     float3_t* get_position() 
@@ -303,8 +382,32 @@ struct emitter_t<SoA_flat> {
     char* get_alive()
       { return reinterpret_cast<char*>(data + capacity * offsetof(particle_nest_t, alive)); }
 
-    void generate( size_t n, mt19937 & rng ) {
-        resize( n );
+    void resize( size_t n ) {
+        capacity = n;
+        data = new char[
+            sizeof( float3_t )*n +
+            sizeof( float3_t )*n +
+            sizeof( float3_t )*n +
+            sizeof( float2_t )*n +
+            sizeof( float4_t )*n +
+            sizeof( float )*n +
+            sizeof( char )*n
+        ];
+    }
+    size_t particles_size()const {
+        return capacity;
+    }
+    emitter_t
+      ( size_t particles_size
+      , mt19937 & rng 
+      )
+      : capacity(particles_size)
+      {
+        resize(particles_size);
+        generate(rng);
+      }
+    void generate(mt19937 & rng ) {
+        auto n = particles_size();
 
         for ( size_t i = 0; i < n; ++i ) {
             get_position()[i] = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
@@ -342,101 +445,46 @@ struct emitter_t<SoA_flat> {
     }
 };
 
-template< typename T >
-using soa_array = array<T, particle_count>;
-  template<>
-struct emitter_t<SoA_stdArr> 
-: public particle_nest_enum
-{
-    static constexpr char const*name(){return "SoA_stdArr";}
-    static constexpr bool defined=true;
-
-    typedef tuple<
-        soa_array<float3_t>,
-        soa_array<float3_t>,
-        soa_array<float3_t>,
-        soa_array<float2_t>,
-        soa_array<float4_t>,
-        soa_array<float>,
-        soa_array<char> > particles_t;
-
-    unique_ptr<particles_t> particles;
-
-      template<particle_e Index>
-    auto& get(){ return std::get<Index>(*particles);}
-    
-    void resize( size_t n) {
-        particles.reset( new particles_t );
-    }
-    
-    std::size_t particles_size() {
-        return get<(particle_e)0>().size();
-    }
-    
-    void generate( size_t n, mt19937 & rng ) {
-        resize( n );
-        
-        for ( size_t i = 0; i < n; ++i ) {
-            get<position>()[i] = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
-            get<velocity>()[i] = float3_t{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
-            get<acceleration>()[i] = float3_t{ adist( rng ), adist( rng ), adist( rng ) };
-            get<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
-            get<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
-            get<energy>()[i] = edist( rng );
-            get<alive>()[i] = true;
-        }
-    }
-
-    void update() {
-        size_t n = particles_size();
-
-        for ( size_t i = 0; i < n; ++i ) {
-            auto & p = get<position>()[i];
-            auto & v = get<velocity>()[i];
-            auto & a = get<acceleration>()[i];
-            auto & e = get<energy>()[i];
-            v += (a * dt);
-            v.y += gravity * dt;
-
-            p += (v * dt);
-            e -= dt;
-            if ( e <= 0 ) {
-                get<alive>()[i] = false;
-            }
-        }
-    }
-};
-
 #include "soa_block.hpp"
   template<>
 struct emitter_t<SoA_block>
+: emitter_method<SoA_block>
 /**@brief
  *  Pretty much cut&past from above
  *    soa_emitter_static_t
  *  but use soa_block instead of soa_array.
  */
-: public particle_nest_enum
+, particle_nest_enum
 {
-    static constexpr char const*name(){return "SoA_block";}
-    static constexpr bool defined=true;
-    
-    typedef soa_block<
-        float3_t,
-        float3_t,
-        float3_t,
-        float2_t,
-        float4_t,
-        float,
-        bool> data_t;
+ private:
+      soa_block<
+      float3_t,
+      float3_t,
+      float3_t,
+      float2_t,
+      float4_t,
+      float,
+      bool> 
+    particles;
+ public:
+    void resize( size_t n ) {
+        particles.resize(n);
+    }
+    std::size_t particles_size()const {
+        return particles.vec_size();
+    }
+    emitter_t
+      ( std::size_t particle_count
+      , mt19937 & rng 
+      )
+      : particles(particle_count)
+      {
+        generate(rng);
+      }
 
-    data_t data;
-
-    emitter_t()
-      : data(particle_count)
-      {}
-
-    void generate( size_t n, mt19937 & rng ) {
-        auto begins_v=data.begin_all();
+    void generate( mt19937 & rng ) {
+        auto n=particles_size();         
+        auto begins_v=particles.begin_all();
         for ( size_t i = 0; i < n; ++i ) {
             get<position>(begins_v)[i] = float3_t{ pdist( rng ), pdist( rng ), pdist( rng ) };
             get<velocity>(begins_v)[i] = float3_t{ vxzdist( rng ), vydist( rng ), vxzdist( rng ) };
@@ -449,8 +497,8 @@ struct emitter_t<SoA_block>
     }
 
     void update() {
-        auto begins_v=data.begin_all();
-        size_t n = particle_count;
+        auto begins_v=particles.begin_all();
+        size_t n = particles_size();
         for ( size_t i = 0; i < n; ++i ) {
             auto & p = get<position>(begins_v)[i];
             auto & v = get<velocity>(begins_v)[i];
@@ -494,15 +542,26 @@ LIBFLATARRAY_REGISTER_SOA(
 
   template<>
 struct emitter_t<LFA> 
+: emitter_method<LFA>
 {
-    static constexpr char const*name(){return "LFA";}
-    static constexpr bool defined=true;
+ private:    
+
     LibFlatArray::soa_vector<particle_lfa_t> particles;
-
-    void generate( size_t n, mt19937 & rng ) 
+ public:
+    void resize( size_t n){
+        if(n>0) particles.resize(n);
+    }
+    size_t particles_size()const{
+        return particles.size();
+    }
+      
+    emitter_t( size_t n, mt19937 & rng) {
+        particles.resize(n);
+        generate(rng);
+    }
+    void generate( mt19937 & rng)
     {
-        particles.resize( n );
-
+        auto n = particles_size();
         // The SoA layout is fixed at compile time. Multiple layouts
         // are available via templates. callback() dispatches at
         // runtime to the correct template instantiation:
@@ -599,10 +658,10 @@ struct emitter_t<LFA>
 std::size_t constexpr sse_align=16;
   template<>
 struct emitter_t<SSE_block>
-: public particle_flat_enum
+: emitter_method<SSE_block>
+, particle_flat_enum
 {
-    static constexpr char const*name(){return "SSE_block";}
-    static constexpr bool defined=true;
+ private:
       soa_block
       <
         type_align<float,sse_align>,// position_x;
@@ -621,34 +680,40 @@ struct emitter_t<SSE_block>
       > particles;
       
       template<particle_e Index>
-      auto* get(){ return particles.begin<Index>();}
-      template<particle_e Index>
       auto* data(){ return particles.begin<Index>();}
-      
+ public:      
     void resize( size_t n) {
         particles.resize(n);
     }
     
-    std::size_t particles_size() {
+    std::size_t particles_size()const {
         return particles.vec_size();
     }
     
-    void generate( size_t n, mt19937 & rng ) {
-        resize( n );
+    emitter_t
+      ( size_t particles_size
+      , mt19937 & rng 
+      )
+      : particles(particles_size) 
+      {
+        generate(rng);
+      }
+    void generate(  mt19937 & rng ) {
+        size_t n=particles_size();
 
         for ( size_t i = 0; i < n; ++i ) {
-            get<position_x>()[i] = pdist( rng );
-            get<position_y>()[i] = pdist( rng );
-            get<position_z>()[i] = pdist( rng );
-            get<velocity_x>()[i] = vxzdist( rng );
-            get<velocity_y>()[i] = vxzdist( rng );
-            get<velocity_z>()[i] = vxzdist( rng );
-            get<acceleration_x>()[i] = adist( rng );
-            get<acceleration_y>()[i] = adist( rng );
-            get<acceleration_z>()[i] = adist( rng );
-            get<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
-            get<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
-            get<energy>()[i] = edist( rng );
+            data<position_x>()[i] = pdist( rng );
+            data<position_y>()[i] = pdist( rng );
+            data<position_z>()[i] = pdist( rng );
+            data<velocity_x>()[i] = vxzdist( rng );
+            data<velocity_y>()[i] = vxzdist( rng );
+            data<velocity_z>()[i] = vxzdist( rng );
+            data<acceleration_x>()[i] = adist( rng );
+            data<acceleration_y>()[i] = adist( rng );
+            data<acceleration_z>()[i] = adist( rng );
+            data<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
+            data<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
+            data<energy>()[i] = edist( rng );
         }
     }
     
@@ -677,7 +742,7 @@ struct emitter_t<SSE_block>
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
             for ( int j = 0; j < 4; ++j ) {
-                get<alive>()[i+j] = (a & (1 << j));
+                data<alive>()[i+j] = (a & (1 << j));
             }
         }
     }
@@ -688,11 +753,11 @@ using sse_vector = vector<T, aligned_allocator<T,sse_align> >;
 
   template<>
 struct emitter_t<SSE_vec> 
-: public particle_flat_enum
+: emitter_method<SSE_vec>
+, particle_flat_enum
 {
-    static constexpr char const*name(){return "SSE_vec";}
-    static constexpr bool defined=true;
-      tuple
+ private:
+      soa_struct
       <
         sse_vector<float>,// position_x;
         sse_vector<float>,// position_y;
@@ -708,11 +773,13 @@ struct emitter_t<SSE_vec>
         sse_vector<float>,// energy;
         vector<char>// alive;
       > particles;
-      
       template<particle_e Index>
-      auto& get(){ return std::get<Index>(particles);}
+      auto& get(){ return get_soa<Index>(particles);}
       template<particle_e Index>
-      auto* data(){ return std::get<Index>(particles).data();}
+      auto const& get()const{ return get_soa<Index>(particles);}
+      template<particle_e Index>
+      auto* data(){ return get<Index>().data();}
+ public:      
       
       void resize( size_t n) {
         get<position_x>().resize( n );
@@ -729,23 +796,33 @@ struct emitter_t<SSE_vec>
         get<energy>().resize( n );
         get<alive>().resize( n, true );
     }
-    
-    void generate( size_t n, mt19937 & rng ) {
-        resize( n );
+    size_t particles_size()const {
+        return get<position_x>().size();
+    }
+    emitter_t
+      ( size_t particles_size
+      , mt19937 & rng 
+      )
+      {
+        resize(particles_size);
+        generate(rng);
+      }
+    void generate( mt19937 & rng ) {
+        auto n=particles_size();
 
         for ( size_t i = 0; i < n; ++i ) {
-            get<position_x>()[i] = pdist( rng );
-            get<position_y>()[i] = pdist( rng );
-            get<position_z>()[i] = pdist( rng );
-            get<velocity_x>()[i] = vxzdist( rng );
-            get<velocity_y>()[i] = vxzdist( rng );
-            get<velocity_z>()[i] = vxzdist( rng );
-            get<acceleration_x>()[i] = adist( rng );
-            get<acceleration_y>()[i] = adist( rng );
-            get<acceleration_z>()[i] = adist( rng );
-            get<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
-            get<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
-            get<energy>()[i] = edist( rng );
+            data<position_x>()[i] = pdist( rng );
+            data<position_y>()[i] = pdist( rng );
+            data<position_z>()[i] = pdist( rng );
+            data<velocity_x>()[i] = vxzdist( rng );
+            data<velocity_y>()[i] = vxzdist( rng );
+            data<velocity_z>()[i] = vxzdist( rng );
+            data<acceleration_x>()[i] = adist( rng );
+            data<acceleration_y>()[i] = adist( rng );
+            data<acceleration_z>()[i] = adist( rng );
+            data<size>()[i] = float2_t{ sdist( rng ), sdist( rng ) };
+            data<color>()[i] = float4_t{ cdist( rng ), cdist( rng ), cdist( rng ), cdist( rng ) };
+            data<energy>()[i] = edist( rng );
         }
     }
 
@@ -778,17 +855,17 @@ struct emitter_t<SSE_vec>
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
             for ( int j = 0; j < 4; ++j ) {
-                get<alive>()[i+j] = (a & (1 << j));
+                data<alive>()[i+j] = (a & (1 << j));
             }
         }
     }
 };
 
   template<>
-struct emitter_t<SSEopt_vec> {
-    static constexpr char const*name(){return "SSEopt_vec";}
-    static constexpr bool defined=true;
-
+struct emitter_t<SSEopt_vec> 
+: emitter_method<SSEopt_vec>
+{
+ private:
     sse_vector<float> position_x;
     sse_vector<float> position_y;
     sse_vector<float> position_z;
@@ -803,21 +880,37 @@ struct emitter_t<SSEopt_vec> {
     sse_vector<float>  energy;
     bit_vector alive;
 
-    void generate( size_t n, mt19937 & rng ) {
-        position_x.resize( n );
-        position_y.resize( n );
-        position_z.resize( n );
-        velocity_x.resize( n );
-        velocity_y.resize( n );
-        velocity_z.resize( n );
-        acceleration_x.resize( n );
-        acceleration_y.resize( n );
-        acceleration_z.resize( n );
-        size.resize( n );
-        color.resize( n );
-        energy.resize( n );
-        alive.resize( n, true );
-
+ public:
+    ~emitter_t() {
+        std::cout<<"~emitter_t("<<method_name[method]<<")"<<std::endl;
+    }
+    void resize( size_t n ) {
+        if(n>0)
+        {
+          position_x.resize( n );
+          position_y.resize( n );
+          position_z.resize( n );
+          velocity_x.resize( n );
+          velocity_y.resize( n );
+          velocity_z.resize( n );
+          acceleration_x.resize( n );
+          acceleration_y.resize( n );
+          acceleration_z.resize( n );
+          size.resize( n );
+          color.resize( n );
+          energy.resize( n );
+          alive.resize( n, true );
+        }
+    }
+    std::size_t particles_size()const {
+        return alive.size();
+    }
+    emitter_t( size_t particles_size, mt19937 & rng) {
+        resize(particles_size);
+        generate(rng);
+    }
+    void generate( mt19937 & rng) {
+        auto n = particles_size();
         for ( size_t i = 0; i < n; ++i ) {
             position_x[i] = pdist( rng );
             position_y[i] = pdist( rng );
@@ -835,10 +928,11 @@ struct emitter_t<SSEopt_vec> {
     }
 
     void update() {
-        size_t n = position_x.size();
+        auto n = particles_size();
         __m128 vx, vy, vz;
         __m128 t = _mm_set1_ps( dt );
         __m128 g = _mm_set1_ps( gravity * dt );
+        __m128 zero = _mm_setzero_ps();
         for ( size_t i = 0; i < n; i += 4 ) {
             vx = _mm_add_ps( _mm_load_ps( velocity_x.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_x.data()+i )));
             vy = _mm_add_ps( _mm_load_ps( velocity_y.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_y.data()+i )));
@@ -854,7 +948,19 @@ struct emitter_t<SSEopt_vec> {
             _mm_store_ps( velocity_y.data()+i, vy );
             _mm_store_ps( velocity_z.data()+i, vz );
         }
-        __m128 zero = _mm_setzero_ps();
+      //#define DO_SSEopt_alive_update
+      #ifdef DO_SSEopt_alive_update
+        //This code causes runtime error:
+        /*
+/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
+particle_count=1,000
+frames=1,000
+{run_test=SSEopt_vec
+  duration=0.00126428
+~emitter_t(SSEopt_vec)
+*** Error in `/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe': double free or corruption (out): 0x0000000002144110 ***
+        
+         */
         uint64_t *block_ptr = (uint64_t*)alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
@@ -866,112 +972,112 @@ struct emitter_t<SSEopt_vec> {
             } while ( i % 64 != 0 );
             *block_ptr++ = block;
         }
+      #endif
     }
 };
 
 #include <utility>
+#include <iomanip>
   using
 dur_t=double;
   struct
 run_result_t
   {
-    const char* method;//name of method;
+    method_enum method;
     dur_t dur_v;//time taken by method;
   };
-#include <limits>
-  constexpr auto 
-dur_max=std::numeric_limits<dur_t>::max();
-  template< typename emitter_t >
-  run_result_t
-run_test()
+  struct
+trace_enter_exit
   {
+    std::string const name;
+    trace_enter_exit(std::string const& a_name): name(a_name)
+      {  std::cout<<"{"<<name<<std::endl;}
+    ~trace_enter_exit()
+      {  std::cout<<"}"<<name<<std::endl;}
+  };
+  template< typename Emitter >
+  run_result_t
+run_test
+  ( std::size_t particle_count
+  , std::size_t frames
+  )
+  {
+    auto method=Emitter::method;
+    trace_enter_exit t_e_e(std::string(__func__)+"="+method_name[method]);
     using clock_t = chrono::high_resolution_clock;
 
     const auto seed_val = mt19937::default_seed;
     mt19937 rng( seed_val );
 
-    dur_t diff=dur_max;
-    bool defined=emitter_t::defined;
-    if(defined)
+    Emitter emitter( particle_count, rng);
+
+    auto start = clock_t::now();
+    
+    for ( size_t i = 0; i < frames; ++i ) 
     {
-      emitter_t emitter;
-      emitter.generate( particle_count, rng );
-  
-      auto start = clock_t::now();
-      
-      for ( size_t i = 0; i < frames; ++i ) 
-      {
-          emitter.update();
-      }
-      auto finish = clock_t::now();
-      chrono::duration<dur_t> dur(finish-start);
-      diff=dur.count();
+        emitter.update();
     }
-    return run_result_t{emitter_t::name(),diff};
+    auto finish = clock_t::now();
+    chrono::duration<dur_t> dur(finish-start);
+    auto diff=dur.count();
+
+    std::cout<<"  duration="<<diff<<std::endl;
+    run_result_t run_result_v{method,diff};
+    return run_result_v;
   }
-#include <iomanip>
-  template
-  < std::size_t N
-  >
   void
 print_results
   ( std::ostream&sout
   , std::vector<run_result_t>& run_result_v
   )
   {
-     auto compare=[](run_result_t const& i, run_result_t const& j)
-       { return (i.dur_v < j.dur_v);
+     trace_enter_exit t_e_e(__func__);
+     std::cout<<"performance table:\n\n";
+     enum col_enum
+       { method
+       , duration
+       , col_last
        };
-     std::sort(run_result_v.begin(),run_result_v.end(),compare);
-     dur_t dur_min=run_result_v[0].dur_v;
-     std::cout<<"minimum duration="<<dur_min<<"\n\n";
-     std::cout<<"comparitive performance table:\n\n";
-     unsigned const ncol=3;
-     std::string const header[ncol]={"method   ","duration","rel_dur"};
-     unsigned long wcol[ncol];
+     std::string const col_name[col_last]=
+       { STRINGIZE(method)
+       , STRINGIZE(duration)
+       };
+     std::string::size_type wcol[col_last]=
+       { 0
+       , 12 //accommodate size of duration printout
+       };
+     //assure wcol accommodates col_name's:
+     for(unsigned i_col=0; i_col<col_last; ++i_col)
+       wcol[i_col]=std::max(wcol[i_col],col_name[i_col].size());
+     //assure wcol[method] is max of method_name's:
+     for(unsigned i_method=0; i_method<method_last; ++i_method)
+       wcol[method]=std::max(wcol[method],method_name[i_method].size());
      sout<<std::left;
-     for(unsigned i=0; i<ncol; ++i)
-     {
-       wcol[i]=header[i].size()+2;
+     //print out col_name's with wcol spacing:
+     for(unsigned i_col=0; i_col<col_last; ++i_col)
        sout
-         <<std::setw(wcol[i])<<header[i]
+         <<std::setw(wcol[i_col])<<col_name[i_col]
          <<" ";
-     }
      sout<<"\n";
      sout<<std::setfill('_');
-     for(unsigned i=0; i<ncol; ++i)
+     //print separation between col_name's and data.
+     for(unsigned i_col=0; i_col<col_last; ++i_col)
      {
        sout
-         <<std::setw(wcol[i])<<""
+         <<std::setw(wcol[i_col])<<""
          <<" ";
      }
      sout<<"\n";
      sout<<std::setfill(' ');
-     int const prec=6;
-     for(unsigned i=0; i<N; ++i)
+     //print results:
+     for(unsigned i_result=0; i_result<run_result_v.size(); ++i_result)
      {
+       auto dur_i=run_result_v[i_result].dur_v;
+       auto meth_i=method_name[run_result_v[i_result].method];
        sout
-         <<std::setw(wcol[0])<<run_result_v[i].method
-         <<" ";
-       auto dur_i=run_result_v[i].dur_v;
-       bool is_defined = (dur_i < dur_max*.9);
-       if(is_defined)
-       {
-         sout
-           <<std::setw(wcol[1])<<dur_i
-           <<" "
-           <<std::setw(wcol[2])<<std::setprecision(prec)<<(dur_i/dur_min)
-           ;
-       }
-       else
-       {
-         sout
-           <<std::setw(wcol[2])<<"undefined"
-           <<" "
-           <<std::setw(wcol[2])<<"undefined"
-           ;
-       }
-       sout
+         <<std::setw(wcol[method])<<meth_i
+         <<" "
+         <<std::setw(wcol[duration])<<dur_i
          <<"\n";
      }
   }
@@ -984,19 +1090,38 @@ run_tests
   ( enum_sequence<method_enum,Methods...>
   )
   {  
-     std::vector<run_result_t> run_result_v={run_test<emitter_t<Methods>>()...};
-     print_results<sizeof...(Methods)>(std::cout,run_result_v);
+     std::size_t particle_count=1000;
+     std::size_t frames=1000;
+      cout << "particle_count="<< particle_count << std::endl;
+      cout << "frames="<< frames << std::endl;
+       std::vector<run_result_t> 
+     run_result_v=
+       { run_test<emitter_t<Methods>>(particle_count,frames)...
+       };
+     print_results(std::cout,run_result_v);
   }
 int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
-    cout << "particle_count="<< particle_count << std::endl;
-    cout << "frames="<< frames << std::endl;
     run_tests
+  #if 0
       ( make_enum_sequence
         < method_enum
         , method_last
         >{}
+  #else
+      ( enum_sequence
+        < method_enum
+        //, AoS
+        //, SoA_vec
+        //, SoA_flat
+        //, SoA_block
+        //, SSE_block
+        //, SSE_vec
+        , SSEopt_vec
+        //, LFA
+        >{}        
+  #endif
       );
     return 0;
   }
