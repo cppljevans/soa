@@ -157,6 +157,7 @@ soa_impl
           <<":result="<<result
           <<"\n";
       #endif
+        if(!result) throw std::bad_alloc();
         return result;
       }
       void

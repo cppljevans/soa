@@ -854,9 +854,12 @@ struct emitter_t<SSE_vec>
             _mm_store_ps( data<energy>()+i, _mm_sub_ps(_mm_load_ps(data<energy>()+i), t));
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
+          #define DO_SSE_vec_alive_update
+          #ifdef DO_SSE_vec_alive_update
             for ( int j = 0; j < 4; ++j ) {
                 data<alive>()[i+j] = (a & (1 << j));
             }
+          #endif
         }
     }
 };
@@ -948,7 +951,7 @@ struct emitter_t<SSEopt_vec>
             _mm_store_ps( velocity_y.data()+i, vy );
             _mm_store_ps( velocity_z.data()+i, vz );
         }
-      //#define DO_SSEopt_alive_update
+      #define DO_SSEopt_alive_update
       #ifdef DO_SSEopt_alive_update
         //This code causes runtime error:
         /*
@@ -1052,6 +1055,7 @@ print_results
      //assure wcol[method] is max of method_name's:
      for(unsigned i_method=0; i_method<method_last; ++i_method)
        wcol[method]=std::max(wcol[method],method_name[i_method].size());
+     ++wcol[method];//append space after method name.
      sout<<std::left;
      //print out col_name's with wcol spacing:
      for(unsigned i_col=0; i_col<col_last; ++i_col)
@@ -1090,10 +1094,11 @@ run_tests
   ( enum_sequence<method_enum,Methods...>
   )
   {  
-     std::size_t particle_count=1000;
+     std::size_t particle_count=1000000;
      std::size_t frames=1000;
-      cout << "particle_count="<< particle_count << std::endl;
-      cout << "frames="<< frames << std::endl;
+     cout << "COMPILE_OPTIM="<<COMPILE_OPTIM << std::endl;
+     cout << "particle_count="<< particle_count << std::endl;
+     cout << "frames="<< frames << std::endl;
        std::vector<run_result_t> 
      run_result_v=
        { run_test<emitter_t<Methods>>(particle_count,frames)...
@@ -1116,10 +1121,10 @@ int main()
         //, SoA_vec
         //, SoA_flat
         //, SoA_block
-        //, SSE_block
-        //, SSE_vec
+        , SSE_block
+        , SSE_vec
         , SSEopt_vec
-        //, LFA
+        , LFA
         >{}        
   #endif
       );
