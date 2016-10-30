@@ -40,6 +40,9 @@ Compilation finished at Mon Oct 24 08:26:48
 //#define HAVE_GOON_BIT_VECTOR
 #ifdef HAVE_GOON_BIT_VECTOR
   #include <goon/bit_vector.hpp>
+  using goon::bit_vector;
+#else
+  using bit_vector=std::vector<uint64_t>;
 #endif
 #include <boost/align/aligned_allocator.hpp>
 #include <boost/fusion/include/for_each.hpp>
@@ -61,11 +64,6 @@ Compilation finished at Mon Oct 24 08:26:48
     ;}
 using namespace std;
 using boost::alignment::aligned_allocator;
-#ifdef HAVE_GOON_BIT_VECTOR
-  using goon::bit_vector;
-#else
-  using bit_vector = std::vector<char>;
-#endif
 
 struct float2_t {
     float x, y;
@@ -854,12 +852,9 @@ struct emitter_t<SSE_vec>
             _mm_store_ps( data<energy>()+i, _mm_sub_ps(_mm_load_ps(data<energy>()+i), t));
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
-          #define DO_SSE_vec_alive_update
-          #ifdef DO_SSE_vec_alive_update
             for ( int j = 0; j < 4; ++j ) {
                 data<alive>()[i+j] = (a & (1 << j));
             }
-          #endif
         }
     }
 };
@@ -951,19 +946,6 @@ struct emitter_t<SSEopt_vec>
             _mm_store_ps( velocity_y.data()+i, vy );
             _mm_store_ps( velocity_z.data()+i, vz );
         }
-      #define DO_SSEopt_alive_update
-      #ifdef DO_SSEopt_alive_update
-        //This code causes runtime error:
-        /*
-/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe 
-particle_count=1,000
-frames=1,000
-{run_test=SSEopt_vec
-  duration=0.00126428
-~emitter_t(SSEopt_vec)
-*** Error in `/tmp/build/clangxx3_8_pkg/clang/struct_of_arrays/work/soa_compare.benchmark.exe': double free or corruption (out): 0x0000000002144110 ***
-        
-         */
         uint64_t *block_ptr = (uint64_t*)alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
@@ -975,7 +957,6 @@ frames=1,000
             } while ( i % 64 != 0 );
             *block_ptr++ = block;
         }
-      #endif
     }
 };
 
