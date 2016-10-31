@@ -950,9 +950,9 @@ struct emitter_t<SSEopt_vec>
         uint64_t *block_ptr = alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
-            auto e_i = e_ptr + i;
             uint64_t block = 0;
             do {
+                auto e_i = e_ptr + i;
                 _mm_store_ps( e_i, _mm_sub_ps( _mm_load_ps( e_i ), t ));
                 block |= 
                   uint64_t
@@ -976,6 +976,8 @@ run_result_t
     method_enum method;
     dur_t dur_v;//time taken by method;
   };
+#define TRACE_ENTER_EXIT
+#ifdef TRACE_ENTER_EXIT
   struct
 trace_enter_exit
   {
@@ -985,6 +987,7 @@ trace_enter_exit
     ~trace_enter_exit()
       {  std::cout<<"}"<<name<<std::endl;}
   };
+#endif  
   template< typename Emitter >
   run_result_t
 run_test
@@ -993,7 +996,9 @@ run_test
   )
   {
     auto method=Emitter::method;
+  #ifdef TRACE_ENTER_EXIT
     trace_enter_exit t_e_e(std::string(__func__)+"="+method_name[method]);
+  #endif
     using clock_t = chrono::high_resolution_clock;
 
     const auto seed_val = mt19937::default_seed;
@@ -1010,8 +1015,9 @@ run_test
     auto finish = clock_t::now();
     chrono::duration<dur_t> dur(finish-start);
     auto diff=dur.count();
-
+  #ifdef TRACE_ENTER_EXIT
     std::cout<<"  duration="<<diff<<std::endl;
+  #endif
     run_result_t run_result_v{method,diff};
     return run_result_v;
   }
@@ -1079,10 +1085,11 @@ print_results
   void
 run_tests
   ( enum_sequence<method_enum,Methods...>
-  , std::size_t particle_count=1000
-  , std::size_t frames=1000
+  , std::size_t particle_count
+  , std::size_t frames
   )
   {  
+     particle_count*=bits_per_uint64_t;
      cout << "COMPILE_OPTIM="<<COMPILE_OPTIM << std::endl;
      cout << "particle_count="<< particle_count << std::endl;
      cout << "frames="<< frames << std::endl;
@@ -1095,7 +1102,7 @@ run_tests
 int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
-     std::size_t particle_count=1000*1000;
+     std::size_t particle_count=(1000)/bits_per_uint64_t;
      std::size_t frames=1000;
     run_tests
   #if 0
