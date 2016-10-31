@@ -37,14 +37,16 @@ Compilation finished at Mon Oct 24 08:26:48
 #include <random>
 #include <algorithm>
 #include <array>
+#include <boost/align/aligned_allocator.hpp>
+std::size_t constexpr sse_align=16;
 //#define HAVE_GOON_BIT_VECTOR
 #ifdef HAVE_GOON_BIT_VECTOR
   #include <goon/bit_vector.hpp>
   using goon::bit_vector;
+  std::size_t constexpr bits_per_uint64_t=64;
 #else
-  using bit_vector=std::vector<uint64_t>;
+  #include "bit_vector.hpp"
 #endif
-#include <boost/align/aligned_allocator.hpp>
 #include <boost/fusion/include/for_each.hpp>
 #include <boost/fusion/include/at_c.hpp>
 #include <boost/fusion/container/vector.hpp>
@@ -653,7 +655,6 @@ struct emitter_t<LFA>
     }
 };
 
-std::size_t constexpr sse_align=16;
   template<>
 struct emitter_t<SSE_block>
 : emitter_method<SSE_block>
@@ -880,7 +881,7 @@ struct emitter_t<SSEopt_vec>
 
  public:
     ~emitter_t() {
-        std::cout<<"~emitter_t("<<method_name[method]<<")"<<std::endl;
+        //std::cout<<"~emitter_t("<<method_name[method]<<")"<<std::endl;
     }
     void resize( size_t n ) {
         if(n>0)
@@ -901,7 +902,7 @@ struct emitter_t<SSEopt_vec>
         }
     }
     std::size_t particles_size()const {
-        return alive.size();
+        return position_x.size();
     }
     emitter_t( size_t particles_size, mt19937 & rng) {
         resize(particles_size);
@@ -930,7 +931,6 @@ struct emitter_t<SSEopt_vec>
         __m128 vx, vy, vz;
         __m128 t = _mm_set1_ps( dt );
         __m128 g = _mm_set1_ps( gravity * dt );
-        __m128 zero = _mm_setzero_ps();
         for ( size_t i = 0; i < n; i += 4 ) {
             vx = _mm_add_ps( _mm_load_ps( velocity_x.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_x.data()+i )));
             vy = _mm_add_ps( _mm_load_ps( velocity_y.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_y.data()+i )));
@@ -946,15 +946,21 @@ struct emitter_t<SSEopt_vec>
             _mm_store_ps( velocity_y.data()+i, vy );
             _mm_store_ps( velocity_z.data()+i, vz );
         }
-        uint64_t *block_ptr = (uint64_t*)alive.data();
+        __m128 zero = _mm_setzero_ps();
+        uint64_t *block_ptr = alive.data();
         auto e_ptr = energy.data();
         for ( size_t i = 0; i < n; ) {
+            auto e_i = e_ptr + i;
             uint64_t block = 0;
             do {
-                _mm_store_ps( e_ptr + i, _mm_sub_ps( _mm_load_ps( e_ptr + i ), t ));
-                block |= uint64_t( _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( e_ptr + i ), zero ))) << (i % 64);
+                _mm_store_ps( e_i, _mm_sub_ps( _mm_load_ps( e_i ), t ));
+                block |= 
+                  uint64_t
+                  ( _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( e_i ), zero ))) 
+                  << (i % bits_per_uint64_t)
+                  ;
                 i += 4;
-            } while ( i % 64 != 0 );
+            } while ( i % bits_per_uint64_t != 0 );
             *block_ptr++ = block;
         }
     }
@@ -1073,10 +1079,10 @@ print_results
   void
 run_tests
   ( enum_sequence<method_enum,Methods...>
+  , std::size_t particle_count=1000
+  , std::size_t frames=1000
   )
   {  
-     std::size_t particle_count=1000000;
-     std::size_t frames=1000;
      cout << "COMPILE_OPTIM="<<COMPILE_OPTIM << std::endl;
      cout << "particle_count="<< particle_count << std::endl;
      cout << "frames="<< frames << std::endl;
@@ -1089,6 +1095,8 @@ run_tests
 int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
+     std::size_t particle_count=1000*1000;
+     std::size_t frames=1000;
     run_tests
   #if 0
       ( make_enum_sequence
@@ -1108,6 +1116,8 @@ int main()
         , LFA
         >{}        
   #endif
+      , particle_count
+      , frames
       );
     return 0;
   }

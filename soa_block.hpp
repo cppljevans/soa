@@ -141,7 +141,7 @@ soa_impl
         };
       }
       void*
-    my_alloc()const
+    my_alloc()const throw(std::bad_alloc)
       { 
         std::size_t const l_align=my_offsets.align_all();
         std::size_t const l_size=my_offsets.size_all();
