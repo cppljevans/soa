@@ -34,6 +34,7 @@ Compilation finished at Mon Oct 24 08:26:48
 #include <algorithm>
 #include <array>
 #include <boost/align/aligned_allocator.hpp>
+#include <boost/align/align_up.hpp>
 #include "bit_vector.hpp"//also: bits_per_block.
 #include <boost/fusion/include/for_each.hpp>
 #include <boost/fusion/include/at_c.hpp>
@@ -149,6 +150,17 @@ method_enum
   , method_last
   };
   
+  constexpr std::size_t
+loop_increment[method_last]=
+  { 1//AoS
+  , 1//SoA_vec
+  , 1//SoA_block
+  , sse_width//SSE_block
+  , sse_width//SSE_vec
+  , sse_width//SSEopt_vec
+  , 0//LFA(unused)
+  };
+
 #define STRINGIZE(x) #x
   
   std::string const
@@ -164,12 +176,21 @@ method_name[method_last+1]=
   , STRINGIZE(method_last)
   };
 
-
   template
   < method_enum Method
   >
 struct emitter_method
-  { static constexpr method_enum method=Method;
+  {   static constexpr method_enum 
+    method=Method;
+      static std::size_t 
+    resize_up(std::size_t n)
+      { 
+        return boost::alignment::
+          align_up
+          ( n
+          , loop_increment[method]
+          );
+      }
   };
   template
   < method_enum Method
@@ -216,6 +237,7 @@ struct emitter_t<AoS>
     vector<particle_nest_t> particles;
  public:
     void resize( size_t n ) {
+        n = resize_up(n);
         if(n>0) particles.resize( n );
     }
     size_t particles_size()const {
@@ -284,6 +306,7 @@ struct emitter_t<SoA_vec>
       { return get_soa<Index>(particles).data();}
   public:    
     void resize( size_t n ) {
+        n=resize_up(n);
         auto fun=[n](auto& e){ e.resize(n);};
         boost::fusion::for_each(particles,fun);
     }
@@ -371,6 +394,7 @@ struct emitter_t<SoA_flat>
       { return reinterpret_cast<char*>(data + capacity * offsetof(particle_nest_t, alive)); }
 
     void resize( size_t n ) {
+        n = resize_up(n);
         capacity = n;
         data = new char[
             sizeof( float3_t )*n +
@@ -456,6 +480,7 @@ struct emitter_t<SoA_block>
     particles;
  public:
     void resize( size_t n ) {
+        n = resize_up(n);
         particles.resize(n);
     }
     std::size_t particles_size()const {
@@ -670,6 +695,7 @@ struct emitter_t<SSE_block>
       auto* data(){ return particles.begin<Index>();}
  public:      
     void resize( size_t n) {
+        n = resize_up(n);
         particles.resize(n);
     }
     
@@ -769,6 +795,7 @@ struct emitter_t<SSE_vec>
  public:      
       
       void resize( size_t n) {
+        n = resize_up(n);
         get<position_x>().resize( n );
         get<position_y>().resize( n );
         get<position_z>().resize( n );
@@ -874,6 +901,7 @@ struct emitter_t<SSEopt_vec>
     void resize( size_t n ) {
         if(n>0)
         {
+          n = resize_up(n);
           position_x.resize( n );
           position_y.resize( n );
           position_z.resize( n );
@@ -987,12 +1015,12 @@ struct emitter_t<SSEopt_vec>
               _mm_load_ps
               ( e_i
               );
-            auto is_zero = 
-              _mm_cmple_ps
+            auto is_positive = 
+              _mm_cmpgt_ps
               ( load_e
               , zero
               );
-            int mask = _mm_movemask_ps(is_zero);
+            int mask = _mm_movemask_ps(is_positive);
               block_t 
             shiftee
               ( mask

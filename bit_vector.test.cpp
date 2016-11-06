@@ -114,12 +114,12 @@ int main()
         {
           e_data()
             : val_
-              { sse_float(0)
-              , sse_float(0)
-              , sse_float(0)
-              , sse_float(0)
+              { sse_float(1)
+              , sse_float(1)
+              , sse_float(1)
+              , sse_float(1)
               }
-              //Set all values to 0 so that in the
+              //Set all values to positive so that in the
               //prints below, it's easy to see how
               //the bitvalues change from the orignal 0's
               //(indicating value is not 0)
@@ -203,12 +203,12 @@ int main()
             ( e_i
             );
           std::cout<<a_ind<<"load_e="<<load_e<<"\n";
-          auto is_zero = 
-            _mm_cmple_ps
+          auto is_positive = 
+            _mm_cmpgt_ps
             ( load_e
             , zero
             );
-          int mask = _mm_movemask_ps(is_zero);
+          int mask = _mm_movemask_ps(is_positive);
           std::cout<<a_ind<<"mask="<<mask<<"\n";
             block_t 
           shiftee
