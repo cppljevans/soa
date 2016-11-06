@@ -24,11 +24,7 @@ Compilation finished at Mon Oct 24 08:26:48
  */
 //=============================
 #define NDEBUG //disable assert's.
-#if defined(__GNUC__)
-  #include <emmintrin.h>
-#else
-  #include <mmintrin.h>
-#endif//for __m128 type and _mm_* functions.
+#include "sse.hpp"
 #include <vector>
 #include <string>
 #include <chrono>
@@ -38,15 +34,7 @@ Compilation finished at Mon Oct 24 08:26:48
 #include <algorithm>
 #include <array>
 #include <boost/align/aligned_allocator.hpp>
-std::size_t constexpr sse_align=16;
-//#define HAVE_GOON_BIT_VECTOR
-#ifdef HAVE_GOON_BIT_VECTOR
-  #include <goon/bit_vector.hpp>
-  using goon::bit_vector;
-  std::size_t constexpr bits_per_uint64_t=64;
-#else
-  #include "bit_vector.hpp"
-#endif
+#include "bit_vector.hpp"//also: bits_per_block.
 #include <boost/fusion/include/for_each.hpp>
 #include <boost/fusion/include/at_c.hpp>
 #include <boost/fusion/container/vector.hpp>
@@ -68,11 +56,11 @@ using namespace std;
 using boost::alignment::aligned_allocator;
 
 struct float2_t {
-    float x, y;
+    sse_float x, y;
 };
 
 struct float3_t {
-    float x, y, z;
+    sse_float x, y, z;
 
     friend float3_t operator-( const float3_t & lhs, const float3_t & rhs ) {
         return float3_t{ lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z };
@@ -80,7 +68,7 @@ struct float3_t {
     friend float3_t operator+( const float3_t & lhs, const float3_t & rhs ) {
         return float3_t{ lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z };
     }
-    friend float3_t operator*( const float3_t & lhs, float rhs ) {
+    friend float3_t operator*( const float3_t & lhs, sse_float rhs ) {
         return float3_t{ lhs.x * rhs, lhs.y * rhs, lhs.z * rhs };
     }
 
@@ -93,7 +81,7 @@ struct float3_t {
 };
 
 struct float4_t {
-    float x, y, z, w;
+    sse_float x, y, z, w;
 };
 
 struct particle_nest_t {
@@ -102,7 +90,7 @@ struct particle_nest_t {
     float3_t acceleration;
     float2_t size;
     float4_t color;
-    float energy;
+    sse_float energy;
     bool alive;
 };
 
@@ -390,7 +378,7 @@ struct emitter_t<SoA_flat>
             sizeof( float3_t )*n +
             sizeof( float2_t )*n +
             sizeof( float4_t )*n +
-            sizeof( float )*n +
+            sizeof( sse_float )*n +
             sizeof( char )*n
         ];
     }
@@ -722,7 +710,7 @@ struct emitter_t<SSE_block>
         __m128 t = _mm_set1_ps( dt );
         __m128 g = _mm_set1_ps( gravity * dt );
         __m128 zero = _mm_setzero_ps();
-        for ( size_t i = 0; i < n; i += 4 ) {
+        for ( size_t i = 0; i < n; i += sse_width ) {
             vx = _mm_add_ps( _mm_load_ps( data<velocity_x>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_x>()+i )));
             vy = _mm_add_ps( _mm_load_ps( data<velocity_y>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_y>()+i )));
             vz = _mm_add_ps( _mm_load_ps( data<velocity_z>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_z>()+i )));
@@ -740,7 +728,7 @@ struct emitter_t<SSE_block>
             _mm_store_ps( data<energy>()+i, _mm_sub_ps(_mm_load_ps(data<energy>()+i), t));
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
-            for ( int j = 0; j < 4; ++j ) {
+            for ( int j = 0; j < sse_width; ++j ) {
                 data<alive>()[i+j] = (a & (1 << j));
             }
         }
@@ -835,7 +823,7 @@ struct emitter_t<SSE_vec>
         __m128 t = _mm_set1_ps( dt );
         __m128 g = _mm_set1_ps( gravity * dt );
         __m128 zero = _mm_setzero_ps();
-        for ( size_t i = 0; i < n; i += 4 ) {
+        for ( size_t i = 0; i < n; i += sse_width ) {
             vx = _mm_add_ps( _mm_load_ps( data<velocity_x>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_x>()+i )));
             vy = _mm_add_ps( _mm_load_ps( data<velocity_y>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_y>()+i )));
             vz = _mm_add_ps( _mm_load_ps( data<velocity_z>()+i ), _mm_mul_ps( t, _mm_load_ps( data<acceleration_z>()+i )));
@@ -853,7 +841,7 @@ struct emitter_t<SSE_vec>
             _mm_store_ps( data<energy>()+i, _mm_sub_ps(_mm_load_ps(data<energy>()+i), t));
 
             auto a = _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( data<energy>()+i ), zero ));
-            for ( int j = 0; j < 4; ++j ) {
+            for ( int j = 0; j < sse_width; ++j ) {
                 data<alive>()[i+j] = (a & (1 << j));
             }
         }
@@ -927,11 +915,11 @@ struct emitter_t<SSEopt_vec>
     }
 
     void update() {
-        auto n = particles_size();
+        auto n_array = particles_size();
         __m128 vx, vy, vz;
         __m128 t = _mm_set1_ps( dt );
         __m128 g = _mm_set1_ps( gravity * dt );
-        for ( size_t i = 0; i < n; i += 4 ) {
+        for ( size_t i = 0; i < n_array; i += sse_width ) {
             vx = _mm_add_ps( _mm_load_ps( velocity_x.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_x.data()+i )));
             vy = _mm_add_ps( _mm_load_ps( velocity_y.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_y.data()+i )));
             vz = _mm_add_ps( _mm_load_ps( velocity_z.data()+i ), _mm_mul_ps( t, _mm_load_ps( acceleration_z.data()+i )));
@@ -947,22 +935,79 @@ struct emitter_t<SSEopt_vec>
             _mm_store_ps( velocity_z.data()+i, vz );
         }
         __m128 zero = _mm_setzero_ps();
-        uint64_t *block_ptr = alive.data();
+        auto* block_ptr = alive.data();
+        using block_t = std::remove_reference<decltype(*block_ptr)>::type;
         auto e_ptr = energy.data();
-        for ( size_t i = 0; i < n; ) {
-            uint64_t block = 0;
+        /*
+         *  alive update loop:
+         */
+      #ifdef HAVE_GOON_BIT_VECTOR   
+        for ( size_t i = 0; i < n_array; ) {
+            block_t block_v = 0;
             do {
                 auto e_i = e_ptr + i;
                 _mm_store_ps( e_i, _mm_sub_ps( _mm_load_ps( e_i ), t ));
-                block |= 
-                  uint64_t
+                block_v |= 
+                  block_t
                   ( _mm_movemask_ps( _mm_cmple_ps( _mm_load_ps( e_i ), zero ))) 
-                  << (i % bits_per_uint64_t)
+                  << (i % bits_per_block)
                   ;
-                i += 4;
-            } while ( i % bits_per_uint64_t != 0 );
-            *block_ptr++ = block;
+                i += sse_width;
+            } while ( i % bits_per_block != 0 );
+            *block_ptr++ = block_v;
         }
+      #else
+        auto* block_end = alive.end();//absent in orig. code
+        for 
+        ( size_t i_array //was i in orig. code
+          = 0
+        ; ( i_array < n_array //requires n_array%sse_width==0 to work correctly.
+         && block_ptr<block_end//absent in orig. code
+          )
+        ; ++block_ptr
+          //Absent in orig. code.
+          //Instead, there was *block_ptr++ = block_v
+          //just after the, in orig. coe, do...while statement.
+        ) 
+        {
+          block_t block_v = 0;
+          for //was a do...while loop in orig. code
+          ( size_t i_bit=0//absent in orig. code
+          ; 
+            ( i_bit < bits_per_block
+            && i_array < n_array//unneeded if bits_per_block%sse_width==0.
+            )//was while ( i % bits_per_block != 0 ) in orig. code
+          ; ( i_array+=sse_width
+            , i_bit+=sse_width//absent in orig. code
+            )
+          )
+          {
+            auto e_i = e_ptr + i_array;
+            auto load_e=
+              _mm_load_ps
+              ( e_i
+              );
+            auto is_zero = 
+              _mm_cmple_ps
+              ( load_e
+              , zero
+              );
+            int mask = _mm_movemask_ps(is_zero);
+              block_t 
+            shiftee
+              ( mask
+                //Was _mm_movemask_ps (.. e_i) in orig code,
+                //which sets on/off most signficant sse_width bits in orig code.
+                //References:
+                //  https://msdn.microsoft.com/en-us/library/4490ys29(v=vs.90).aspx
+              )
+              ;
+            block_t bitor_right = shiftee << i_bit;
+            block_v |= bitor_right;
+          }
+          *block_ptr=block_v;
+        }
+      #endif//HAVE_GOON_BIT_VECTOR
     }
 };
 
@@ -1089,9 +1134,16 @@ run_tests
   , std::size_t frames
   )
   {  
-     particle_count*=bits_per_uint64_t;
+     particle_count=boost::alignment::
+       align_up
+       ( particle_count
+       , bits_per_block
+         //Required only for SSEopt (because of the alive update loop).
+         //For the other SSE methods, only sse_width is required.
+         //For all others, only 1 is required.
+       );
      cout << "COMPILE_OPTIM="<<COMPILE_OPTIM << std::endl;
-     cout << "particle_count="<< particle_count << std::endl;
+     cout << "particle_count(after align_up)="<< particle_count << std::endl;
      cout << "frames="<< frames << std::endl;
        std::vector<run_result_t> 
      run_result_v=
@@ -1102,7 +1154,7 @@ run_tests
 int main()
   {
     cout.imbue(std::locale(""));//for thousands separator.
-     std::size_t particle_count=(1000)/bits_per_uint64_t;
+     std::size_t particle_count=1000;
      std::size_t frames=1000;
     run_tests
   #if 0
